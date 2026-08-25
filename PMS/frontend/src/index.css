@@ -1,0 +1,105 @@
+/*
+ * Minimal shell styling only. The BRD asks for a "simple, minimal UI optimized for fast data
+ * entry during consultations", so the shell stays out of the way; feature styling arrives
+ * with the features.
+ */
+
+:root {
+  --pms-text: #1f2933;
+  --pms-muted: #6b7280;
+  --pms-border: #d8dee6;
+  --pms-accent: #1c5d99;
+  --pms-surface: #ffffff;
+  --pms-background: #f5f7fa;
+
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--pms-text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--pms-background);
+}
+
+.app-layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-layout__header {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--pms-surface);
+  border-bottom: 1px solid var(--pms-border);
+}
+
+.app-layout__brand {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.app-layout__nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.app-layout__link {
+  color: var(--pms-muted);
+  text-decoration: none;
+  padding: 0.25rem 0;
+}
+
+.app-layout__link--active {
+  color: var(--pms-accent);
+  border-bottom: 2px solid var(--pms-accent);
+}
+
+.app-layout__main {
+  flex: 1;
+  padding: 1.5rem;
+}
+
+.empty-state {
+  border: 1px dashed var(--pms-border);
+  border-radius: 6px;
+  padding: 1.5rem;
+  text-align: center;
+  background: var(--pms-surface);
+}
+
+.empty-state__title {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+}
+
+.empty-state__description {
+  margin: 0;
+  color: var(--pms-muted);
+}
+
+.empty-state__action {
+  margin-top: 1rem;
+}
+
+.placeholder-page h1 {
+  margin-top: 0;
+  font-size: 1.25rem;
+}
+
+.error-boundary {
+  max-width: 40rem;
+  margin: 4rem auto;
+  padding: 1.5rem;
+  background: var(--pms-surface);
+  border: 1px solid var(--pms-border);
+  border-radius: 6px;
+}
