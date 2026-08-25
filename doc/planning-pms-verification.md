@@ -1,60 +1,47 @@
 # Patient Management Application — Phase 1 Implementation Plan
 
-- **Source of truth (what to build):** `BRD/Doc_BRD.md`
-- **Source of truth (readiness, converged decisions, risks, open questions):** `doc/brainstorm-pms-verification.md`
+- **Plans:** `BRD/Doc_BRD.md` (what to build)
+- **Grounded in:** `doc/brainstorm-pms-verification.md`, refresh dated 2026-08-20 (what can go wrong, and what converged). IDs below are **that file's current IDs** — coverage `C-1..C-49`, edge cases `E-1..E-66`, risks `RSK-1..RSK-15`, recommendations `REC-1..REC-19`, open questions `Q-1..Q-16`, and the consultation-capture options `A..H` from §6/§7. No ID mapping from any earlier version of either document is reused here.
 - **Date:** 2026-08-18
-- **Scope:** Phase 1 only (single general physician, single clinic)
-- **Status:** Implementation plan. Concrete enough to open an editor and create files. Not authorisation to build the items marked `Blocked`.
+- **Scope:** Phase 1 only — one general physician, one clinic. Everything in the BRD's "Out of Scope" list (L58–69) and everything in brainstorm §11 is excluded; where the architecture must simply not foreclose a deferred item, that is one line, not a feature section.
+- **Stack (fixed):** React + TypeScript (Vite) · ASP.NET Core Web API · SQL Server via SSMS · EF Core Code-First
+- **Status:** Implementation plan. **Two features are `Blocked` and carry no build steps.** Fifteen carry an explicit `Assumption:` line tied to a `Q-` ID (or, where §12 has no matching question, labelled as this plan's own finding).
+- **Supersedes:** the prior contents of this file in full. This is a re-derivation against the refreshed brainstorm doc, not an incremental edit.
 
 ---
 
 ## 1. Headline
 
-**Ready to build today:** the solution skeleton, app shell, patient search, search-first registration with near-match warning, patient archive lifecycle, the appointment state machine, the consultation draft/autosave lifecycle, finalize with appointment auto-completion, prescription snapshot + print, and visit history. That is roughly two-thirds of Phase 1 and it is enough work to keep a developer busy for six weeks without touching an undecided item.
+**Nothing is fully unblocked except the scaffolding — and that is fine, because thirteen of the sixteen open questions are one-meeting policy calls.** F-1 (solution + app shell) is the only feature that is `Ready` with no gate at all. Fifteen features are buildable today behind a stated default, each labelled `Assumption:` with its `Q-` ID. **F-20 (backup, restore, encryption at rest) is `Blocked` on Q-1 + Q-12** and **F-21 (credential recovery / lockout) is `Blocked` on C-44, for which brainstorm §12 has no open question at all** — that omission is this plan's own finding and should be added to the §12 agenda.
 
-**Gated behind a decision:** authentication session policy (OQ-11), audit scope (OQ-12), clinic header content (OQ-5), patient demographics rules (OQ-7, OQ-14), appointment scheduling model (OQ-9), the vitals exception path (OQ-1 — the brainstorm converged on D-7 C, it needs ratification only), medication/diagnosis required-field rules (OQ-13), amendment policy (OQ-2), export scope (OQ-10), and the recovery objective behind backups (OQ-3). Each is planned below behind a single labelled `Assumption:` line.
+**Highest-leverage next step: run the one-hour decision session on Q-1..Q-16 that brainstorm §15 recommends, and add two items to the agenda that §12 does not currently carry — credential recovery/lockout (C-44) and the appointment time model (C-24).** Q-1 alone unblocks F-20 and settles encryption, backup destination and outage behaviour; Q-2, Q-3, Q-5 and Q-6 convert the four largest gated features from `L` to `M`.
 
-**Genuinely blocked, no concrete steps written:** **F-4 credential recovery** (OQ-6 — no converged option exists anywhere; a design decision, not a default) and **F-22 retention & deletion policy** (OQ-8 — jurisdiction-specific, the brainstorm explicitly refuses to invent one). Both are `L`.
-
-**Single highest-leverage next step:** hold the one-hour owner meeting that answers OQ-1 through OQ-8. Per §12 of the brainstorm doc that hour clears six of the eight Blockers, converts eleven feature sections below from `Needs decision` to `Ready`, and is the only thing that can unblock F-4 and F-22 at all. Do this before F-13 starts, because F-13 is the critical path's longest link.
-
-**Critical path** (longest chain of blocking dependencies from the §5 map — this, not the sum of all efforts, sets the earliest finish):
-
-```
-F-1 Solution skeleton (M)
-  -> F-3 Auth & session (M)
-    -> F-7 Patient entity & registration (M)
-      -> F-13 Consultation draft lifecycle + autosave (L)
-        -> F-15 Complaints/diagnosis/medications + pre-finalize review (M)
-          -> F-16 Finalize + appointment auto-complete (M)
-            -> F-17 Prescription snapshot, print layout, reprint (L)
-              -> F-18 Amendments (M)
-```
-
-Eight links, two of them `L`. Everything else in Phase 1 (search, archive, appointments, history, export, backup) hangs off this spine and can be built in parallel by a second developer without extending the finish date. **F-13 is where schedule risk actually lives**; it is also R-1, the brainstorm's top recommendation.
+**Critical path (from §5, longest blocking chain — this, not the sum of efforts, sets the earliest finish date):**
+`F-1 → F-2 → F-3 → F-5 → F-9 → F-10 → F-11 → F-13 → F-14 → F-15 → F-17` — eleven links. F-3 (ClinicProfile + first-run gate) sits early because nothing prints without it (C-32 / REC-4 / E-1) and because vitals units live there (E-24). **F-20 is not on the build path but is a hard go-live gate:** the clinic must not take real patient data without a rehearsed restore (E-50) and a defined encryption-at-rest story (C-45).
 
 ---
 
-## 2. Architecture overview (stated once; every feature section references it)
+## 2. Architecture overview
 
-| Concern | Convention |
-|---|---|
-| Backend runtime | .NET 10 (LTS), ASP.NET Core Web API |
-| Projects | `PMS.Api` (controllers, middleware, composition root) · `PMS.Application` (services, DTOs, validators, interfaces) · `PMS.Domain` (EF entities, enums, domain rules) · `PMS.Infrastructure` (`PmsDbContext`, EF Core configurations, migrations, repositories, PDF/CSV/backup adapters) |
-| Dependency direction | `Api -> Application -> Domain`; `Infrastructure -> Application/Domain`. `Api` references `Infrastructure` **only** in `Program.cs` for DI registration |
-| API shape | RESTful controllers, one per aggregate (`PatientsController`, `AppointmentsController`, `VisitsController`, `PrescriptionsController`, `ClinicProfileController`, `ExportController`, `AuthController`, `SettingsController`, `BackupStatusController`). Controllers depend on services, **never** on `PmsDbContext` |
-| DTOs | Request/response DTOs in `PMS.Application/Dtos/<Aggregate>/`. EF entities are never serialised across the wire. Mapping is hand-written static mappers (`PatientMapper`) — no AutoMapper, the surface is too small to justify it |
-| Data access | EF Core 10, Code-First. Entities in `PMS.Domain/Entities`, `IEntityTypeConfiguration<T>` classes in `PMS.Infrastructure/Persistence/Configurations`, migrations in `PMS.Infrastructure/Persistence/Migrations`. **Every schema change is a named migration** — each feature below names its own |
-| Keys | `Guid` primary keys generated in-app via `Guid.CreateVersion7()` (sequential, index-friendly, opaque in URLs — see EC-71). No natural keys anywhere |
-| Time | All instants stored as `DateTimeOffset` (UTC). A single clinic timezone is stored in `ClinicProfile.TimeZoneId` and is the **only** timezone used for rendering. `Visit.ClinicDate` is a `DateOnly`, fixed at draft creation and never recomputed (R-22, EC-47, EC-48) |
-| Validation | FluentValidation in `PMS.Application/Validation`, executed by a filter in `PMS.Api`. Failures return RFC 7807 `ProblemDetails` with `errors` |
-| Error handling | One `ExceptionHandlingMiddleware` in `PMS.Api/Middleware`; all errors return `ProblemDetails`. No raw exception text reaches the browser |
-| Frontend | Angular 20 workspace, **standalone components throughout — no `NgModule`s** (stated once; every feature is consistent with it). Signals for component state, `HttpClient` with a typed service per feature, `provideRouter` with lazy `loadComponent` routes |
-| Frontend layout | `frontend/src/app/features/<feature>/` each containing `*.component.ts`, `*.service.ts`, `models/*.model.ts` (TypeScript interfaces mirroring the API DTOs). Shared pieces in `frontend/src/app/shared/`, cross-cutting singletons in `frontend/src/app/core/` |
-| Auth | **Decision (new — the BRD and brainstorm doc do not fix the mechanism; ratify in §9):** cookie-based auth via ASP.NET Core Identity with an `HttpOnly`, `Secure`, `SameSite=Strict` session cookie. **Not JWT** — a JWT in browser storage is readable by any script and survives in a shared-PC browser profile, which directly contradicts EC-68/EC-70/EC-71. Cookie auth also gives server-side session revocation, which app-level auto-lock needs |
-| Config & secrets | `appsettings.json` for non-secrets; connection string and Identity keys via **user-secrets** locally and **environment variables** in the clinic deployment. Nothing secret is committed. Any feature touching configuration says so explicitly |
-| Encryption | In transit: HTTPS enforced (`UseHsts`, `RequireHttpsMetadata`), `Encrypt=True;TrustServerCertificate=False` on the SQL connection string. At rest: SQL Server TDE enabled on the `PMS` database plus BitLocker on the host volume — this is a deployment step, tracked in §8 |
-| Deviations | None planned. If a feature needs one, it says so in its own section |
+Stated once; every feature section references this rather than re-deciding.
+
+**Solution layout.** `backend/` holds one ASP.NET Core Web API solution of four projects — `PMS.Api` (controllers, middleware, composition root, serves the built SPA), `PMS.Application` (services, DTOs, validators, abstractions), `PMS.Infrastructure` (EF Core `PmsDbContext`, entity configurations, migrations, repositories, PDF/CSV writers), `PMS.Domain` (entities and enums, zero framework dependencies). `frontend/` holds a **React 18 + TypeScript workspace built with Vite**.
+
+**API shape.** RESTful controllers, one per aggregate: `AuthController`, `ClinicProfileController`, `ClinicSettingsController`, `PatientsController`, `AppointmentsController`, `VisitsController`, `PrescriptionsController`, `ExportController`, `AuditController`. Controllers depend on `PMS.Application` service interfaces and **never on `PmsDbContext`**. Request/response DTOs are separate types from EF entities; **no entity crosses the wire**. Prefix `/api`, JSON everywhere, all errors as RFC-7807 `ProblemDetails` (§7).
+
+**Data access.** EF Core Code-First. Entities in `PMS.Domain/Entities/`; `PmsDbContext` plus `IEntityTypeConfiguration<T>` classes in `PMS.Infrastructure/Persistence/`; migrations in `PMS.Infrastructure/Migrations/`. **Every schema change is a named migration**, named in the feature section that introduces it — never implicit. Services take repository / `IUnitOfWork` interfaces declared in `PMS.Application/Abstractions/`. Writes that span more than one table (finalize, amend, register-with-audit) run inside one `IUnitOfWork.SaveChangesAsync` transaction.
+
+**Frontend structure.** Folder-per-feature under `frontend/src/features/<feature>/`: function components (`*.tsx`), one co-located API module (`<feature>Api.ts`), hooks (`use<Thing>.ts`), and `types/` holding TypeScript interfaces mirroring the API DTOs. Shared layout, UI primitives, the fetch wrapper and the error boundary live in `frontend/src/shared/`. **Server state is managed with TanStack Query (React Query) v5 throughout** — no mixed fetching strategies; plain component state is used only for uncommitted form input. Routing via **React Router v6**, with concrete paths named per feature.
+
+**Auth — explicit decision (not defaulted silently).** **Cookie-based authentication using the ASP.NET Core cookie handler, not a JWT in `localStorage`/`sessionStorage`.** Reason: a token in web storage is readable by any script on the page and persists in the browser profile of a machine that sits in a consulting room — a direct conflict with E-62 (screen left unlocked between patients) and E-65 (browser autofill / cached form data on the clinic machine). The cookie is `HttpOnly`, `Secure`, `SameSite=Strict`, sliding within an absolute lifetime, with no persistent "remember me". **Trade-off accepted:** cookie auth wants same-origin, so `PMS.Api` serves the built React bundle from `wwwroot` in every environment and Vite's dev server proxies `/api` in development. This holds identically under all three deployment options in Q-1, so it does not pre-empt that decision.
+
+**Print / PDF rendering — explicit decision.** The prescription is rendered **server-side to PDF (QuestPDF) in `PMS.Infrastructure/Printing/`**, and the browser prints that PDF; it is *not* an HTML `@media print` stylesheet per browser. Reason: C-47 and E-10 — Chrome, Edge and Safari differ materially in page breaks, repeated headers and font fallback, and the printed prescription is the product's main physical output. One renderer removes that whole class of defect and makes reprints byte-identical (E-52). Trade-off: one server round-trip (~200–400 ms) before the print dialog. QuestPDF licensing is an open item (§9).
+
+**Environments.** Connection string and every secret come from configuration — `appsettings.json` for non-secret defaults, **user-secrets locally, environment variables in the deployed environment**. No connection string, password pepper or signing key is ever committed. Re-stated in F-1 and F-20.
+
+**Effort notation used throughout.** Per the rubric, a feature resting on an unresolved `Q-` is tagged **L** regardless of build size, because its true cost includes the decision cycle. To keep the signal, the post-decision build cost is shown in parentheses: `L (M after Q-3)`. A bare `L` means genuinely over a week of engineering.
+
+**Deviation policy.** One concretization is called out where it occurs rather than made silently: brainstorm §6.2 sketches `Complaint` and `Diagnosis` as child rows; this plan stores each as a single text column on `Visit` (they are 1:1 per visit and never repeat). Noted again in F-12. Nothing else deviates from the conventions above.
 
 ---
 
@@ -62,122 +49,138 @@ Eight links, two of them `L`. Everything else in Phase 1 (search, archive, appoi
 
 ```
 Hospital-managment/
-├── BRD/Doc_BRD.md
-├── doc/
-│   ├── brainstorm-pms-verification.md
-│   └── planning-pms-verification.md          <- this file
-├── backend/
-│   ├── PMS.sln
-│   ├── src/
-│   │   ├── PMS.Api/
-│   │   │   ├── Controllers/
-│   │   │   │   ├── AuthController.cs
-│   │   │   │   ├── ClinicProfileController.cs
-│   │   │   │   ├── PatientsController.cs
-│   │   │   │   ├── AppointmentsController.cs
-│   │   │   │   ├── VisitsController.cs
-│   │   │   │   ├── PrescriptionsController.cs
-│   │   │   │   ├── ExportController.cs
-│   │   │   │   ├── SettingsController.cs
-│   │   │   │   └── BackupStatusController.cs
-│   │   │   ├── Middleware/
-│   │   │   │   ├── ExceptionHandlingMiddleware.cs
-│   │   │   │   └── AuditEnrichmentMiddleware.cs
-│   │   │   ├── Filters/ValidationFilter.cs
-│   │   │   ├── appsettings.json
-│   │   │   └── Program.cs
-│   │   ├── PMS.Application/
-│   │   │   ├── Abstractions/       (IPatientRepository, IVisitRepository, IClock, IAuditWriter, IPdfRenderer, ICsvWriter, ...)
-│   │   │   ├── Dtos/<Aggregate>/
-│   │   │   ├── Services/           (PatientService, AppointmentService, VisitService, PrescriptionService, ExportService, ClinicProfileService, AuditService)
-│   │   │   ├── Mapping/
-│   │   │   └── Validation/
-│   │   ├── PMS.Domain/
-│   │   │   ├── Entities/           (Patient, Appointment, Visit, Vitals, MedicationLine, PrescriptionIssue, VisitAmendment, ClinicProfile, AuditEvent, VitalRangeSetting, NotRecordedReason, BackupStatus)
-│   │   │   └── Enums/              (PatientRecordStatus, AppointmentStatus, VisitLifecycleState, PrescriptionIssueKind, AuditAction)
-│   │   └── PMS.Infrastructure/
-│   │       ├── Persistence/
-│   │       │   ├── PmsDbContext.cs
-│   │       │   ├── Configurations/
-│   │       │   └── Migrations/
-│   │       ├── Repositories/
-│   │       ├── Printing/QuestPdfRenderer.cs
-│   │       ├── Export/CsvWriter.cs
-│   │       └── Backup/BackupStatusProbe.cs
-│   └── tests/
-│       ├── PMS.Application.Tests/Services/
-│       ├── PMS.Api.IntegrationTests/Controllers/
-│       └── PMS.Infrastructure.Tests/
-└── frontend/
-    ├── angular.json  package.json  playwright.config.ts
-    ├── e2e/
-    └── src/app/
-        ├── core/            (auth.interceptor.ts, auth.guard.ts, clinic-setup.guard.ts, error.interceptor.ts, idle-lock.service.ts, clinic-clock.service.ts)
-        ├── shared/          (patient-picker/, empty-state/, save-indicator/, confirm-dialog/, date-range-filter/)
-        └── features/
-            ├── auth/  clinic-setup/  patients/  appointments/  consultation/  prescription/  history/  export/  settings/  home/
+├─ BRD/Doc_BRD.md
+├─ doc/
+│  ├─ brainstorm-pms-verification.md
+│  └─ planning-pms-verification.md              <- this file
+├─ backend/
+│  ├─ PMS.sln
+│  ├─ src/
+│  │  ├─ PMS.Domain/
+│  │  │  ├─ Entities/   AppUser.cs · ClinicProfile.cs · SettingOption.cs
+│  │  │  │              VitalRangeSetting.cs · Patient.cs · Appointment.cs
+│  │  │  │              Visit.cs · VisitVitals.cs · MedicationLine.cs
+│  │  │  │              PrescriptionIssue.cs · VisitAmendment.cs · AuditEvent.cs
+│  │  │  └─ Enums/      VisitState.cs · AppointmentStatus.cs · AppointmentSource.cs
+│  │  │                 PatientStatus.cs · SettingCategory.cs · VitalMetric.cs
+│  │  │                 AuditEventType.cs · TemperatureUnit.cs
+│  │  ├─ PMS.Application/
+│  │  │  ├─ Abstractions/  IUnitOfWork.cs · IPatientRepository.cs · IVisitRepository.cs
+│  │  │  │                 IAppointmentRepository.cs · IAuditWriter.cs · IClock.cs
+│  │  │  │                 IPdfRenderer.cs · ICsvWriter.cs
+│  │  │  ├─ Services/      PatientService.cs · PatientDuplicateService.cs
+│  │  │  │                 AppointmentService.cs · VisitService.cs · VitalsService.cs
+│  │  │  │                 MedicationService.cs · PrescriptionService.cs
+│  │  │  │                 AmendmentService.cs · HistoryService.cs · ExportService.cs
+│  │  │  │                 ClinicProfileService.cs · ClinicSettingsService.cs · AuthService.cs
+│  │  │  ├─ Dtos/          (one folder per aggregate)
+│  │  │  └─ Validation/    (FluentValidation validators, one per request DTO)
+│  │  ├─ PMS.Infrastructure/
+│  │  │  ├─ Persistence/   PmsDbContext.cs · Configurations/*.cs · Repositories/*.cs
+│  │  │  ├─ Migrations/    (named migrations, see each feature)
+│  │  │  ├─ Printing/      QuestPdfPrescriptionRenderer.cs · PrescriptionDocument.cs
+│  │  │  └─ Export/        Rfc4180CsvWriter.cs
+│  │  └─ PMS.Api/
+│  │     ├─ Controllers/   Auth · ClinicProfile · ClinicSettings · Patients
+│  │     │                 Appointments · Visits · Prescriptions · Export · Audit
+│  │     ├─ Middleware/    ProblemDetailsMiddleware.cs · RequestTimingMiddleware.cs
+│  │     ├─ wwwroot/       (built React bundle)
+│  │     ├─ Program.cs · appsettings.json · appsettings.Development.json
+│  └─ tests/
+│     ├─ PMS.Application.Tests/     Services/*Tests.cs
+│     ├─ PMS.Api.IntegrationTests/  Endpoints/*Tests.cs · TestWebAppFactory.cs
+│     └─ PMS.E2E/                   (Playwright specs, *.spec.ts)
+└─ frontend/
+   ├─ index.html · vite.config.ts · tsconfig.json · package.json
+   └─ src/
+      ├─ main.tsx · App.tsx · routes.tsx
+      ├─ shared/
+      │  ├─ api/         httpClient.ts · problemDetails.ts · queryClient.ts
+      │  ├─ components/  AppLayout.tsx · EmptyState.tsx · SaveStateBadge.tsx
+      │  │               ConfirmDialog.tsx · PatientPickerRow.tsx · ScreenLock.tsx
+      │  ├─ hooks/       useIdleTimer.ts · useBeforeUnloadGuard.ts · useSubmitOnce.ts
+      │  └─ types/       problemDetails.ts · paging.ts
+      └─ features/
+         ├─ auth/        LoginPage.tsx · authApi.ts · useSession.ts · types/
+         ├─ setup/       FirstRunSetupPage.tsx · setupApi.ts · types/
+         ├─ clinic/      ClinicProfilePage.tsx · ClinicSettingsPage.tsx
+         │               VitalRangesPage.tsx · clinicApi.ts · useClinicProfile.ts · types/
+         ├─ patients/    PatientSearch.tsx · PatientList.tsx · PatientForm.tsx
+         │               PatientProfile.tsx · DuplicateWarningDialog.tsx
+         │               RecentPatients.tsx · patientsApi.ts · usePatients.ts
+         │               usePatientDuplicates.ts · types/
+         ├─ appointments/DailyAppointmentList.tsx · AppointmentForm.tsx
+         │               AppointmentStatusMenu.tsx · appointmentsApi.ts
+         │               useAppointments.ts · types/
+         ├─ visits/      ConsultationPage.tsx · VitalsSection.tsx · ComplaintSection.tsx
+         │               DiagnosisSection.tsx · MedicationSection.tsx
+         │               FinalizeDialog.tsx · AmendmentPanel.tsx · DraftBanner.tsx
+         │               visitsApi.ts · useVisitDraft.ts · useAutosave.ts
+         │               useVisitLock.ts · types/
+         ├─ prescriptions/PrescriptionPreview.tsx · prescriptionsApi.ts
+         │               usePrescription.ts · types/
+         ├─ history/     PatientHistory.tsx · HistoryDateFilter.tsx · VisitDetail.tsx
+         │               historyApi.ts · usePatientHistory.ts · types/
+         ├─ export/      ExportPage.tsx · exportApi.ts · useExport.ts · types/
+         └─ audit/       AuditLogPage.tsx · auditApi.ts · useAuditLog.ts · types/
 ```
 
 ---
 
-## 4. Data model overview (Phase 1, EF types)
+## 4. Data model overview (Phase 1)
 
-One level more concrete than the brainstorm's §7.1 sketch. Column-level constraint tuning and index shape are migration-review tasks, not planning ones — only load-bearing constraints are stated.
+Concretizes brainstorm §6.2 to real EF types. No DDL, indexes or constraint tuning here beyond the constraints that are load-bearing for a decision — that is migration review, not planning.
 
-| Entity | Key properties (EF types) | Relationships |
+| Entity | Key properties (name : type) | Relationships |
 |---|---|---|
-| `Patient` | `Id: Guid` · `DisplayName: string(200)` · `NormalizedName: string(200)` (accent/case-folded, for search) · `DateOfBirth: DateOnly?` · `AgeAtRegistrationYears: int?` · `AgeAtRegistrationMonths: int?` · `AgeCapturedOn: DateOnly?` · `Gender: string(40)` · `PhonePrimary: string(30)?` · `PhonePrimaryDigits: string(20)?` · `PhoneAlt: string(30)?` · `PhoneAltDigits: string(20)?` · `Notes: string(2000)?` · `RegisteredOn: DateTimeOffset` · `ContactUpdatedOn: DateTimeOffset?` · `RecordStatus: PatientRecordStatus` · `ArchivedIntoPatientId: Guid?` · `ArchivedOn: DateTimeOffset?` · `ArchiveNote: string(500)?` | `1—* Visit`, `1—* Appointment`, self-ref `ArchivedIntoPatientId -> Patient` |
-| `Appointment` | `Id: Guid` · `PatientId: Guid` · `ScheduledFor: DateTimeOffset` · `ClinicDate: DateOnly` · `Status: AppointmentStatus` · `StatusChangedOn: DateTimeOffset` · `ReasonNote: string(300)?` · `CreatedOn: DateTimeOffset` | `*—1 Patient`, `0..1—0..1 Visit` |
-| `Visit` | `Id: Guid` · `PatientId: Guid` · `AppointmentId: Guid?` · `ClinicDate: DateOnly` (fixed at draft creation) · `StartedAt: DateTimeOffset` · `FinalizedAt: DateTimeOffset?` · `LifecycleState: VisitLifecycleState` (Draft/Finalized) · `ComplaintsText: string(4000)?` · `DiagnosisText: string(4000)?` · `IsBackdated: bool` · `CreatedOn: DateTimeOffset` · `RowVersion: byte[]` (concurrency token) · `EditingSessionId: Guid?` + `EditingHeartbeatAt: DateTimeOffset?` (two-tab guard) | `*—1 Patient`, `0..1—0..1 Appointment`, `1—1 Vitals`, `1—* MedicationLine`, `1—* PrescriptionIssue`, `1—* VisitAmendment` |
-| `Vitals` | `VisitId: Guid` (PK+FK) · `TemperatureValue: decimal(4,1)?` · `TemperatureUnit: string(1)?` (C/F) · `TemperatureNotRecordedReasonId: Guid?` · `BpSystolic: int?` · `BpDiastolic: int?` · `BpNotRecordedReasonId: Guid?` · `PulseValue: int?` · `PulseNotRecordedReasonId: Guid?` | `1—1 Visit`, `*—0..1 NotRecordedReason` (x3) |
-| `MedicationLine` | `Id: Guid` · `VisitId: Guid` · `Sequence: int` · `DrugName: string(200)` · `Dosage: string(100)?` · `Frequency: string(100)?` · `Duration: string(100)?` · `Instructions: string(500)?` | `*—1 Visit`; unique `(VisitId, Sequence)` |
-| `PrescriptionIssue` | `Id: Guid` · `VisitId: Guid` · `GeneratedAt: DateTimeOffset` · `IssueKind: PrescriptionIssueKind` (Original/Reprint/AmendedReissue) · `SnapshotJson: string(max)` · `SnapshotHash: string(64)` · `RenderedPdf: byte[]?` | `*—1 Visit`; **append-only, never updated or deleted** |
-| `VisitAmendment` | `Id: Guid` · `VisitId: Guid` · `AmendedAt: DateTimeOffset` · `FieldChanged: string(100)` · `PriorValue: string(max)?` · `NewValue: string(max)?` · `Reason: string(500)` | `*—1 Visit`; **append-only** |
-| `ClinicProfile` | `Id: Guid` · `ClinicName: string(200)` · `DoctorName: string(200)` · `Qualifications: string(300)?` · `RegistrationNumber: string(100)?` · `AddressLines: string(500)?` · `Phone: string(50)?` · `FooterNote: string(1000)?` · `LogoBytes: byte[]?` · `LogoContentType: string(100)?` · `TimeZoneId: string(100)` · `IsSetupComplete: bool` | Singleton row enforced by a check constraint / seeded fixed `Id` |
-| `AuditEvent` | `Id: Guid` · `OccurredAt: DateTimeOffset` · `EntityKind: string(60)` · `EntityId: Guid?` · `Action: AuditAction` · `Detail: string(1000)?` · `CorrelationId: string(50)?` | Standalone, **append-only, insert-only mapping** |
-| `NotRecordedReason` | `Id: Guid` · `VitalKind: string(20)` (Temperature/BloodPressure/Pulse/Any) · `Label: string(100)` · `IsActive: bool` · `Sequence: int` | Doctor-defined lookup (D-7 C) |
-| `VitalRangeSetting` | `Id: Guid` · `VitalKind: string(20)` · `Unit: string(10)?` · `WarnBelow: decimal?` · `WarnAbove: decimal?` | Doctor-configured; **blank until the doctor sets it** — the system never asserts a clinical range of its own (EC-13) |
-| `BackupStatus` | `Id: Guid` · `LastSuccessAt: DateTimeOffset?` · `LastAttemptAt: DateTimeOffset?` · `LastResult: string(40)` · `LastMessage: string(500)?` | Singleton row |
-| Identity tables | `AspNetUsers`, `AspNetUserClaims`, … (ASP.NET Core Identity, single row in `AspNetUsers`) | — |
+| `AppUser` | `Id:Guid` · `UserName:string` · `PasswordHash:string` · `SecurityStamp:string` · `FailedAttempts:int` · `LockoutEndUtc:DateTimeOffset?` · `LastLoginUtc:DateTimeOffset?` | standalone (exactly one row) |
+| `ClinicProfile` | `Id:int` (singleton, always 1) · `ClinicName:string` · `AddressLines:string` · `DoctorName:string` · `DoctorRegistrationNo:string` · `SignatureImage:byte[]?` · `PrescriptionFooter:string?` · `TemperatureUnit:TemperatureUnit` · `IsSetupComplete:bool` · `UpdatedUtc:DateTimeOffset` | referenced by prescription rendering |
+| `SettingOption` | `Id:int` · `Category:SettingCategory` (`Gender`, `VitalsNotRecordedReason`) · `Value:string` · `DisplayOrder:int` · `IsActive:bool` | doctor-configured lookup; **values are data, never hardcoded logic** |
+| `VitalRangeSetting` | `Id:int` · `Metric:VitalMetric` · `WarnLow:decimal?` · `WarnHigh:decimal?` · `UpdatedUtc:DateTimeOffset` | doctor-defined thresholds (E-12); the system enforces only what it is given |
+| `Patient` | `Id:Guid` · `FullName:string(200)` · `NormalizedName:string` · `DateOfBirth:DateOnly?` · `ApproxAgeYears:int?` · `AgeRecordedOn:DateOnly?` · `Gender:string?` · `PrimaryPhone:string?` · `NormalizedPhone:string?` · `AltContact:string?` · `RegisteredUtc:DateTimeOffset` · `Status:PatientStatus` · `InactiveReason:string?` · `MergedIntoPatientId:Guid?` · `RowVersion:byte[]` | `1..* Appointment`, `1..* Visit`; self-reference `MergedIntoPatientId → Patient.Id` |
+| `Appointment` | `Id:Guid` · `PatientId:Guid` · `ScheduledForUtc:DateTimeOffset` · `DurationMinutes:int` · `Status:AppointmentStatus` · `Source:AppointmentSource` (`Booked`/`WalkIn`) · `CreatedUtc` · `RowVersion:byte[]` | `Patient 1..*`; `0..1 Visit` |
+| `Visit` | `Id:Guid` · `PatientId:Guid` · `AppointmentId:Guid?` · `State:VisitState` (`Draft`/`Finalized`) · `StartedUtc:DateTimeOffset` · `VisitDate:DateOnly` (fixed at draft creation, never recomputed — E-44) · `FinalizedUtc:DateTimeOffset?` · `ComplaintText:string?` · `DiagnosisText:string?` · `LockToken:Guid?` · `LockHeartbeatUtc:DateTimeOffset?` · `RowVersion:byte[]` | `Patient 1..*`; `0..1 Appointment`; owns `VisitVitals`, `MedicationLine`, `PrescriptionIssue`, `VisitAmendment` |
+| `VisitVitals` | `VisitId:Guid` (PK+FK, 1:1) · `TemperatureValue:decimal?` · `TemperatureNotRecordedReason:string?` · `BpSystolic:int?` · `BpDiastolic:int?` · `BpNotRecordedReason:string?` · `PulseBpm:int?` · `PulseNotRecordedReason:string?` · `RecordedUtc` | `Visit 1:1`. **Absent is `null` + a reason — never a sentinel number** (E-18) |
+| `MedicationLine` | `Id:Guid` · `VisitId:Guid` · `LineNo:int` · `Name:string` · `Dosage:string` · `Frequency:string?` · `Duration:string?` · `Instructions:string?` | `Visit 1..*`; zero rows is legal (E-5) |
+| `PrescriptionIssue` | `Id:Guid` · `VisitId:Guid` · `PrescriptionNumber:string` (unique) · `IssuedUtc:DateTimeOffset` · `PrintCount:int` · `LastPrintedUtc:DateTimeOffset?` | `Visit 1:1`, created at finalize |
+| `VisitAmendment` | `Id:Guid` · `VisitId:Guid` · `Sequence:int` · `Text:string` · `CreatedUtc:DateTimeOffset` | `Visit 1..*`, **append-only — no update, no delete** (E-32) |
+| `AuditEvent` | `Id:long` · `EventType:AuditEventType` · `EntityType:string` · `EntityId:string` · `OccurredUtc:DateTimeOffset` · `Summary:string` · `PayloadJson:string?` | append-only; six event types (REC-9, §5.7) |
 
-Relationship summary: `Patient 1—* Visit` · `Patient 1—* Appointment` · `Visit 1—1 Vitals` · `Visit 1—* MedicationLine` · `Visit 1—* PrescriptionIssue` · `Visit 1—* VisitAmendment` · `Appointment 0..1—0..1 Visit`.
+**Load-bearing constraints (the only ones stated at plan level):** `PrescriptionIssue.PrescriptionNumber` unique; `VisitAmendment` and `AuditEvent` have no update/delete path exposed by any service; `Patient` has **no hard-delete endpoint** while any `Visit` references it (E-33); `Visit.VisitDate` is written once at draft creation; a finalized `Visit` rejects any mutation of its clinical columns at the service layer (E-32).
 
-**Integrity-motivated entities** (none appear in the BRD; all come from brainstorm §7.1): `PrescriptionIssue.SnapshotJson` closes Mutable history on the printed artefact · `VisitAmendment` closes Mutable history on the visit · `Patient.RecordStatus` + `ArchivedIntoPatientId` close the Orphan hole a hard delete would open · `ClinicProfile` is the missing entity behind Blocker C-22 · `AuditEvent` answers "who changed what, when".
+**Not foreclosed but not built:** `MergedIntoPatientId` exists so Phase-2 merge tooling (§11) is possible without destroying history; nothing else in the parking lot is modelled.
 
 ---
 
 ## 5. Dependency map (build order)
 
-Effort rubric matches brainstorm §3: **S** under a day · **M** two to five days · **L** over a week, *or* anything `Blocked` or resting on an unresolved `Needs decision`.
-
-**Effort notation:** where the brainstorm doc already converged on a named option and the open question is a *ratification* rather than an open design space, the effort is written `M (L while OQ-n open)` — the build cost is M, but the true cost including the decision cycle is L until the owner confirms. Where no converged option exists (F-4, F-11, F-22), the effort is flatly `L`, because the design does not exist yet.
+A `Blocked` row blocks everything downstream of it in this table. Nothing is downstream of F-20 or F-21 in build terms — both are **go-live gates**, which is why they sit at the end and must not be treated as optional.
 
 | ID | Feature | Depends on | Effort | Readiness |
 |---|---|---|---|---|
-| F-1 | Solution skeleton, config, error handling, clinic clock | — | M | Ready |
-| F-2 | App shell, navigation, empty states, keyboard-first | F-1 | M | Ready |
-| F-3 | Authentication & session (login, auto-lock) | F-1 | M (L while OQ-11 open) | Needs decision (OQ-11) |
-| F-5 | Append-only audit log | F-1, F-3 | M (L while OQ-12 open) | Needs decision (OQ-12) |
-| F-6 | ClinicProfile + first-run setup gate | F-1, F-3 | S (L while OQ-5 open) | Needs decision (OQ-5) |
-| F-7 | Patient entity + registration form | F-1, F-3, F-5 | M (L while OQ-7/OQ-14 open) | Needs decision (OQ-7, OQ-14) |
-| F-8 | Patient search + recent patients | F-7 | M (L while OQ-16 open) | Needs decision (OQ-16); search itself Ready |
-| F-9 | Search-first registration + near-match warning | F-7, F-8 | M | Ready (D-2 converged) |
-| F-10 | Patient archive lifecycle (no hard delete) | F-7, F-5 | S | Ready (D-2/R-4 converged) |
-| F-11 | Appointment scheduling + daily list | F-7, F-8 | **L** | Needs decision (OQ-9 — no converged option) |
-| F-12 | Appointment state machine + Overdue display | F-11, F-5 | M | Ready (brainstorm §7.2 converged) |
-| F-13 | **Consultation draft lifecycle + autosave + concurrency guards** | F-7, F-6, F-5 | **L** | Ready (D-1 D converged; OQ-3 sets one constant) |
-| F-14 | Vitals capture + not-recorded reasons + doctor ranges | F-13 | M (L while OQ-1 open) | Needs decision (OQ-1 — D-7 C converged) |
-| F-15 | Complaints, diagnosis, medications + pre-finalize review | F-13 | M (L while OQ-13 open) | Needs decision (OQ-13) |
-| F-16 | Finalize + appointment auto-complete + idempotency | F-13, F-14, F-15, F-12 | M | Ready (D-5 C converged) |
-| F-17 | Prescription snapshot, print layout, reprint | F-16, F-6 | **L** | Ready (D-4 C converged) |
-| F-18 | Amendments after finalize | F-16, F-17, F-5 | M (L while OQ-2 open) | Needs decision (OQ-2 — D-1 D converged) |
-| F-19 | Patient history + visit detail + date filter | F-13, F-16, F-17, F-18 | M | Ready |
-| F-20 | Export CSV/PDF (scoped, confirmed, audited) | F-8, F-19, F-5 | M (L while OQ-10 open) | Needs decision (OQ-10 — D-6 converged) |
-| F-21 | Backup + visible backup status | F-1, F-2 | M (L while OQ-3 open) | Needs decision (OQ-3) |
-| F-4 | Credential recovery for the single user | F-3, **OQ-6** | **L** | **Blocked** |
-| F-22 | Retention & deletion policy enforcement | F-10, **OQ-8** | **L** | **Blocked** |
+| F-1 | Solution scaffolding, app shell, health check, error contract | — | M | **Ready** |
+| F-2 | Login, session policy, idle screen lock | F-1 | L (M after C-44 session call) | Needs decision (C-44, REC-11 — no `Q-` exists) |
+| F-3 | ClinicProfile + first-run setup gate | F-1, F-2 | L (S after Q-4) | Needs decision (Q-4) |
+| F-4 | Doctor-configured settings: gender list, vitals reasons, plausibility ranges | F-3 | L (S after Q-9, Q-10) | Needs decision (Q-9, Q-10) |
+| F-5 | Patient registration & profile | F-1, F-2, F-4 | L (M after Q-7, Q-16, Q-9) | Needs decision (Q-7, Q-16, Q-9) |
+| F-6 | Duplicate detection at registration + `merged_into` pointer | F-5 | L (M after Q-13) | Needs decision (Q-13) |
+| F-7 | Patient search, recent patients, disambiguating picker | F-5 | L (M after search-semantics call) | Needs decision (C-22 — no `Q-` exists) |
+| F-8 | Patient edit + deactivate (no hard delete) | F-5, F-17 | L (M after Q-6) | Needs decision (Q-6) |
+| F-9 | Appointments: scheduling, daily list, status machine, walk-in start | F-5, F-7 | L (M after Q-5, Q-14) | Needs decision (Q-5, Q-14) |
+| F-10 | Visit lifecycle: draft, autosave, save-state, resume, single-tab lock, finalize | F-9 | L (L after Q-3) | Needs decision (Q-3) |
+| F-11 | Vitals capture — mandatory-or-reason | F-10, F-4 | L (M after Q-2, Q-10) | Needs decision (Q-2, Q-10) |
+| F-12 | Complaints & diagnosis capture | F-10 | L (S after Q-8) | Needs decision (Q-8) |
+| F-13 | Medications | F-10 | L (M after medication-required-subset call) | Needs decision (C-31/E-22 — no `Q-` exists) |
+| F-14 | Prescription generation, print, reprint | F-3, F-11, F-12, F-13 | L (M after Q-4, Q-8) | Needs decision (Q-4, Q-8) |
+| F-15 | Visit amendments (append-only) | F-14 | L (M after Q-3) | Needs decision (Q-3) |
+| F-16 | Patient history + date filter | F-10, F-14, F-15 | M | **Ready** (build gated only by upstream) |
+| F-17 | Audit trail (six event types) | F-1 | L (M after audit acceptance) | Needs decision (REC-9/C-48 — no `Q-` exists) |
+| F-18 | Export CSV / PDF | F-14, F-16, F-17 | L (M after Q-11) | Needs decision (Q-11) |
+| F-19 | Keyboard-first input + performance instrumentation | F-10, F-11, F-12, F-13 | L (S after Q-15) | Needs decision (Q-15) |
+| F-20 | Backup, restore rehearsal, backup-status indicator, encryption at rest | F-1 | **L** | **Blocked** (Q-1, Q-12) |
+| F-21 | Credential recovery, lockout policy | F-2 | **L** | **Blocked** (C-44 — brainstorm §12 has no question for this) |
 
-**Blocking reach:** F-4 blocks go-live but blocks no other feature's *code* — it is a release gate, not a build gate (RISK-8: a forgotten password locks the clinic out of every record permanently). F-22 blocks nothing downstream either; archive-not-delete (F-10) is the stated interim, so the schema does not change when OQ-8 lands — only a policy job is added. **Neither blocker sits on the critical path**, which is why the critical path in §1 is buildable today.
+**Critical path:** `F-1 → F-2 → F-3 → F-5 → F-9 → F-10 → F-11 → F-13 → F-14 → F-15 → F-17`. F-4, F-6, F-7, F-8, F-12, F-17 and F-19 run parallel to it. F-16 and F-18 tail the path. F-20 and F-21 are off-path but gate go-live.
 
 ---
 
@@ -185,1029 +188,826 @@ Effort rubric matches brainstorm §3: **S** under a day · **M** two to five day
 
 ---
 
-### F-1 — Solution skeleton, configuration, error handling, clinic clock
+### F-1 — Solution scaffolding, app shell, error contract
 
-**1. Readiness — Ready.** No BRD ambiguity; conventions are fixed in §2.
+**1. Readiness.** **Ready.** No open question touches it; the stack is fixed and the conventions are in §2.
 
-**2. Data model.** No entities yet. Creates `PmsDbContext` in `PMS.Infrastructure/Persistence/`, EF design-time factory, and the `IClock` / `ClinicClock` abstraction (`UtcNow: DateTimeOffset`, `ClinicToday(): DateOnly`, `ToClinicTime(DateTimeOffset)`) implementing R-22. Migration: **none in this feature** — the first migration ships with F-3. Solution created with `dotnet new sln`, four `dotnet new classlib/webapi` projects, project references wired per §2.
-
-**3. API design.**
-
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
-|---|---|---|---|---|---|
-| GET | `/api/health` | — | `HealthResponse` | 200, 503 | Anonymous |
-| GET | `/api/health/db` | — | `HealthResponse` | 200, 503 | Anonymous |
-
-**4. Frontend design.** `ng new pms --standalone --routing --style=scss` into `frontend/`. Creates `frontend/src/app/core/error.interceptor.ts` (maps `ProblemDetails` to a toast), `frontend/src/app/core/api-base-url.token.ts`, `frontend/src/environments/environment*.ts` (API base URL only — no secrets ever reach the browser bundle), and `frontend/src/app/core/clinic-clock.service.ts` (`formatClinicDate(iso: string): string`, `formatClinicTime(iso: string): string`) so no component ever renders browser-local time (EC-48).
-
-**5. Data integrity check.** No save path yet. Establishes the two mechanisms later features depend on: `IClock` (so `ClinicDate` never drifts across midnight — EC-47) and the `ProblemDetails` pipeline (so a failed write is never rendered as success — EC-51).
-
-**6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/ClinicClockTests.cs` — clinic-date rollover at the configured timezone boundary, DST shift (EC-48).
-- Backend integration: `PMS.Api.IntegrationTests/HealthEndpointTests.cs` — `/api/health/db` returns 503 when the connection string is wrong.
-- Frontend unit: `frontend/src/app/core/clinic-clock.service.spec.ts`.
-- E2E: none (no user-facing flow yet).
-
-**7. Acceptance criteria.**
-- [ ] `dotnet build backend/PMS.sln` succeeds with zero warnings-as-errors from a clean clone.
-- [ ] `dotnet ef migrations list` runs against `PMS.Infrastructure` without a design-time error.
-- [ ] `GET /api/health/db` returns 200 with a reachable database and 503 with an unreachable one.
-- [ ] No connection string, password or key appears in any file tracked by source control; `dotnet user-secrets list` shows the local connection string instead.
-- [ ] `ng serve` renders the shell and an unhandled 500 from any endpoint surfaces a toast, never a raw stack trace.
-- [ ] A date rendered by `ClinicClockService` is identical on a browser set to UTC and one set to UTC+9.
-
-**8. Effort & dependencies.** **M.** Depends on nothing. **Blocks everything.**
-
----
-
-### F-2 — App shell, navigation, empty states, keyboard-first
-
-**1. Readiness — Ready.** Implements R-20 (purposeful empty states) and R-27/C-27 (keyboard-first, the actual lever on the 2–3 minute target per B-1).
-
-**2. Data model.** None. No migration.
-
-**3. API design.** None (consumes F-8 and F-11 endpoints once they exist; renders empty states until then).
-
-**4. Frontend design.**
-- `frontend/src/app/features/home/home.component.ts` — route `/today`. Panels: today's appointments (F-11), unfinished consultations (F-13), recent patients (F-8), backup status (F-21). Each panel renders `<pms-empty-state>` with its own primary action when its list is empty (EC-2, EC-4).
-- `frontend/src/app/shared/empty-state/empty-state.component.ts` — inputs `message`, `actionLabel`, `actionRoute`.
-- `frontend/src/app/core/shortcuts.service.ts` — `register(key: string, handler: () => void): void`. Global shortcuts: `/` focus search, `Alt+N` new patient, `Alt+C` new consultation, `Esc` close dialog.
-- `frontend/src/app/app.routes.ts` — lazy `loadComponent` for every feature route; `/today` is the default redirect.
-- Every form control in the app gets an explicit `tabindex` order and a visible focus ring; no action is mouse-only.
-
-**5. Data integrity check.** No save path. Indirect contribution: EC-7's "Register [typed text] as a new patient" empty state is the entry point of search-first registration (F-9), which is the Duplicate prevention mechanism.
-
-**6. Test strategy.**
-- Backend unit / integration: not applicable.
-- Frontend unit: `home.component.spec.ts` (each panel renders its empty state with the right action when given `[]`), `empty-state.component.spec.ts`, `shortcuts.service.spec.ts`.
-- E2E: `frontend/e2e/shell-navigation.spec.ts` — first-run app with no data shows four purposeful empty states (EC-2, EC-4, EC-5); `keyboard-only.spec.ts` — reach and open a new consultation using only the keyboard.
-
-**7. Acceptance criteria.**
-- [ ] With an empty database, `/today` shows four panels, each with a message and a working primary action button — no blank boxes, no spinners left running (EC-2, EC-4).
-- [ ] `/` focuses the patient search box from any route.
-- [ ] Every route in `app.routes.ts` is reachable by keyboard alone from `/today`, verified by `keyboard-only.spec.ts`.
-- [ ] Initial route render measured in Chrome DevTools (Fast 3G throttling off, local API) completes in < 2s per NFR Performance.
-
-**8. Effort & dependencies.** **M.** Depends on F-1. Blocks nothing structurally, but every other feature's UI mounts inside it.
-
----
-
-### F-3 — Authentication & session (login, auto-lock)
-
-**1. Readiness — Needs decision (OQ-11).**
-
-> **Assumption (OQ-11 — shared clinic PC vs. private device):** building for the **shared clinic PC**, the stricter of the two. That means app-level auto-lock after **10 minutes idle**, `autocomplete="off"` on patient fields and `autocomplete="new-password"` on the login form (EC-70), `Cache-Control: no-store` on all patient-data responses (EC-71), and **no session expiry while a consultation draft is dirty** (EC-43 — a timeout that eats a consultation gets switched off entirely, which is the worse security outcome). If the owner answers "private device", relax the idle timer to 60 minutes; nothing else changes.
-
-**2. Data model.** ASP.NET Core Identity schema, single seeded user. No custom entity beyond Identity's. Migration: **`AddIdentitySchema`**.
+**2. Data model.** `PmsDbContext` created with no entity sets beyond `AppUser` (F-2 populates it). Migration: **`InitialCreate`**. Connection string read from `ConnectionStrings:Pms` via configuration only (§2, Environments) — SSMS is used to create the empty `PmsDb` database; `dotnet ef database update` builds the schema.
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| POST | `/api/auth/login` | `LoginRequest { UserName, Password }` | `SessionResponse { UserName, ExpiresAt, ClinicSetupComplete }` | 200, 400, 401, 423 (locked out) | Anonymous |
-| POST | `/api/auth/logout` | — | — | 204 | Cookie |
-| GET | `/api/auth/session` | — | `SessionResponse` | 200, 401 | Cookie |
-| POST | `/api/auth/unlock` | `UnlockRequest { Password }` | `SessionResponse` | 200, 401, 423 | Cookie |
-| POST | `/api/auth/change-password` | `ChangePasswordRequest { Current, New }` | — | 204, 400, 401 | Cookie |
+| GET | `/api/health` | — | `HealthResponse` | 200 | anonymous |
+| GET | `/api/health/db` | — | `HealthResponse` | 200, 503 | anonymous |
 
-Lockout: 5 failed attempts, 5-minute lockout (Identity defaults, configured explicitly in `Program.cs`). Backed by `AuthService` in `PMS.Application/Services/`.
+**4. Frontend design.** `frontend/src/main.tsx`, `App.tsx`, `routes.tsx` (React Router v6 route table), `shared/api/httpClient.ts` (`request<T>(path, init): Promise<T>`, throws a typed `ProblemDetailsError`), `shared/api/queryClient.ts` (TanStack Query client, `retry: 1`, `refetchOnWindowFocus: false`), `shared/components/AppLayout.tsx`, `shared/components/EmptyState.tsx`, `shared/types/problemDetails.ts`. Routes registered as placeholders: `/login`, `/setup`, `/`, `/patients`, `/patients/:id`, `/visits/:id`, `/settings/clinic`, `/export`, `/audit`.
 
-**4. Frontend design.**
-- `features/auth/login.component.ts` — route `/login`; calls `AuthService.login(req: LoginRequest): Observable<SessionResponse>`.
-- `features/auth/lock-screen.component.ts` — route-less overlay; calls `AuthService.unlock(password: string)`. **Renders over the current route without unmounting it**, so a draft in the DOM survives the lock (EC-43, EC-68).
-- `core/idle-lock.service.ts` — `start(): void`, `notifyActivity(): void`, `suppressWhile(isDirty: Signal<boolean>): void`. The consultation component registers its dirty signal here.
-- `core/auth.guard.ts`, `core/auth.interceptor.ts` (adds `withCredentials`, redirects 401 to `/login`).
-- `features/settings/change-password.component.ts` — route `/settings/security`.
-
-**5. Data integrity check.** Risk: an idle lock or session expiry silently discarding an in-progress consultation (Silent loss, EC-43). Prevented by (a) auto-lock never unmounting the route, (b) the session not expiring while `isDirty` is true, and (c) F-13's autosave meaning the draft is already on the server regardless. Exposure risk (EC-68) is closed by the lock itself.
+**5. Data integrity check.** No user data path yet. The contract established here — every failed write surfaces as a typed error the UI must render, never a swallowed promise — is what makes E-47 ("doctor believes it saved") preventable in every later feature.
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/AuthServiceTests.cs` — lockout after 5 failures, correct 423 on a locked account, password-change rejects a wrong current password.
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/AuthControllerTests.cs` — login sets an `HttpOnly` `Secure` `SameSite=Strict` cookie; a protected endpoint returns 401 without it; logout invalidates it; every patient-data response carries `Cache-Control: no-store` (EC-71).
-- Frontend unit: `login.component.spec.ts`, `idle-lock.service.spec.ts` (timer suppressed while dirty — EC-43), `auth.interceptor.spec.ts`.
-- E2E: `frontend/e2e/auth-lock.spec.ts` — golden path login; edge case **EC-68**: idle past the timer mid-consultation, unlock, confirm the typed complaint text is still on screen and still saved.
+- Backend unit: `PMS.Application.Tests/Services/ClockTests.cs` (deterministic `IClock`, used by every later service test).
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/HealthEndpointTests.cs` using `TestWebAppFactory : WebApplicationFactory<Program>` against LocalDB.
+- Frontend unit: `frontend/src/shared/api/httpClient.test.ts` (Vitest) — ProblemDetails parsing, non-JSON error bodies.
+- E2E: Playwright smoke spec `PMS.E2E/app-shell.spec.ts` — app loads, unauthenticated user is redirected to `/login`.
 
 **7. Acceptance criteria.**
-- [ ] Login with correct credentials reaches `/today`; with wrong credentials returns 401 and a message that does not reveal whether the username exists.
-- [ ] The auth cookie is `HttpOnly`, `Secure`, `SameSite=Strict`; no token appears in `localStorage` or `sessionStorage` (checked in the E2E spec).
-- [ ] After 10 minutes of no input, the lock overlay appears and every patient field is visually obscured (EC-68).
-- [ ] Unlocking restores the exact route and form state that was on screen before the lock (EC-43).
-- [ ] The session does **not** expire while a consultation draft is dirty, verified by an integration test advancing the clock past the timeout with a dirty draft.
-- [ ] The login form does not offer to save credentials and patient inputs do not autofill on a second visit (EC-70).
-- [ ] Six consecutive wrong passwords return 423 and the sixth attempt is recorded as an `AuditAction.LoginFailed` event once F-5 lands.
+- [ ] `dotnet build backend/PMS.sln` succeeds with four projects and three test projects.
+- [ ] `dotnet ef migrations add InitialCreate -p PMS.Infrastructure -s PMS.Api` produces a migration; `database update` creates `PMSDb` visible in SSMS.
+- [ ] `GET /api/health/db` returns 200 with a live SQL Server and 503 with the connection string removed.
+- [ ] No connection string, password or key appears in any committed file; `dotnet user-secrets list` supplies it locally.
+- [ ] `npm run build` in `frontend/` emits to `backend/src/PMS.Api/wwwroot`, and browsing the API root serves the SPA (same-origin requirement of the §2 auth decision).
 
-**8. Effort & dependencies.** **M (L while OQ-11 open).** Depends on F-1. Blocks F-4 (blocked), F-5, F-6, F-7 — i.e. the whole critical path.
+**8. Effort & dependencies.** **M.** Depends on nothing. **Blocks every other feature.**
 
 ---
 
-### F-4 — Credential recovery for the single user
+### F-2 — Login, session policy, idle screen lock
 
-**1. Readiness — Blocked — needs decision first.**
+**1. Readiness.** **Needs decision.**
+> **Assumption:** session lifetime and password policy follow REC-11 — **idle screen lock at 5 minutes (blurs PHI, preserves the in-progress draft in memory and on the server), session absolute expiry at 12 hours, sliding renewal on activity, and re-authentication in place that never discards a draft** (E-41, E-62). Password minimum 12 characters, no forced rotation. This corresponds to **C-44 / REC-11**; brainstorm §12 carries **no `Q-` for it**, which is this plan's own finding — see §9. Lockout and credential *recovery* are split out to F-21 and are **Blocked**, because with exactly one user there is nobody to perform a reset and the brainstorm records no owner decision.
 
-**What must be resolved:** **OQ-6 — "How is the single user's password recovered if lost?"** (brainstorm §12; coverage row **C-31 Blocker**; **RISK-8**; **EC-74**). This is the one open question the brainstorm doc classifies as *design effort*, not a policy call, and it is the only Blocker for which **no converged option exists anywhere** in D-1..D-7. There are at least four materially different answers — a recovery email to a verified address, a sealed offline recovery code generated at setup, a documented DBA-level reset run in SSMS against the Identity tables, or a second break-glass local account — and they differ in threat model, deployment requirements (an SMTP dependency the clinic may not have) and operational cost. Picking one silently would be inventing a security decision, which §Rules forbids.
-
-**Why no concrete steps:** the entity, the endpoint surface and the frontend route all differ per option (a recovery code needs a `RecoveryCode` entity and a setup-time reveal screen; an email path needs SMTP configuration, a token entity and a public reset route; a DBA reset needs no code at all, only a runbook). Writing file targets before the choice would be a guess.
-
-**Where it must be resolved:** BRD *Non-Functional Requirements → Security* is silent on recovery; the decision belongs in `BRD/Doc_BRD.md` §Security plus the answer to **OQ-6** in `doc/brainstorm-pms-verification.md` §12.
-
-**Interim risk while unresolved:** RISK-8 — Low likelihood, **Critical** impact, total and unrecoverable Silent loss. **This is a go-live gate, not a build gate**: F-3 and everything after it can be built and tested without it, but the clinic must not go live on real patient data until a recovery path exists.
-
-**Effort & dependencies.** **L** (Blocked — the true cost includes the decision cycle plus a design pass). Depends on F-3 and on OQ-6. Blocks go-live only.
-
----
-
-### F-5 — Append-only audit log
-
-**1. Readiness — Needs decision (OQ-12).**
-
-> **Assumption (OQ-12 — is an audit trail in Phase 1 scope, and which events?):** building **R-12's minimal append-only log** covering exactly: `Login`, `LoginFailed`, `VisitFinalized`, `VisitAmended`, `VisitDraftDiscarded`, `VisitPatientReassigned`, `PatientArchived`, `PatientDeleteBlocked`, `PrescriptionIssued`, `PrescriptionReprinted`, `DataExported`, `ClinicProfileUpdated`. Not full field-level change history — that is parking-lot **P-16**. If the owner declines audit entirely in Phase 1, F-18 (amendments) loses its trail and RISK-12 is accepted explicitly; say so in writing rather than dropping it quietly.
-
-**2. Data model.** `AuditEvent` per §4. EF configuration maps it insert-only: no `Update`/`Delete` methods are exposed, and `PmsDbContext.SaveChanges` throws on a modified or deleted `AuditEvent` entry. Migration: **`AddAuditEvent`**.
+**2. Data model.** `AppUser` (see §4). Migration: **`AddAppUser`**. Seeded by a one-time `PMS.Api` startup task that reads the initial credential from configuration (user-secrets / environment variable) and refuses to run twice.
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| GET | `/api/audit?from=&to=&entityKind=&action=&page=` | — | `PagedResult<AuditEventDto>` | 200, 401 | Cookie |
+| POST | `/api/auth/login` | `LoginRequest{UserName,Password}` | `SessionResponse{userName,expiresUtc,setupComplete}` | 200, 400, 401 | anonymous |
+| POST | `/api/auth/logout` | — | — | 204 | cookie |
+| GET | `/api/auth/session` | — | `SessionResponse` | 200, 401 | cookie |
+| POST | `/api/auth/reauth` | `LoginRequest` | `SessionResponse` | 200, 401 | expired-or-valid cookie |
 
-No POST — audit entries are written server-side by `IAuditWriter.WriteAsync(AuditAction, string entityKind, Guid? entityId, string? detail)` called from the services that perform the audited action, inside the same transaction as the action itself.
+**4. Frontend design.** `features/auth/LoginPage.tsx` (route `/login`), `features/auth/authApi.ts` (`login(req): Promise<Session>`, `logout(): Promise<void>`, `getSession(): Promise<Session>`, `reauth(req): Promise<Session>`), `features/auth/useSession.ts` (TanStack Query, `staleTime: 60_000`), `shared/components/ScreenLock.tsx` (overlay driven by `shared/hooks/useIdleTimer.ts(idleMs)`), `shared/components/RequireAuth.tsx` route guard. `POST /api/auth/reauth` is called from the lock overlay — **the consultation page beneath it is never unmounted** (E-41). `autoComplete="off"` on all patient-data forms is set here as a shared form convention (E-65).
 
-**4. Frontend design.** `features/settings/audit-log.component.ts` — route `/settings/audit`; read-only table with date-range and action filters. `AuditService.list(filter: AuditFilter): Observable<PagedResult<AuditEventDto>>`. No write path in the UI.
-
-**5. Data integrity check.** This feature *is* the Mutable-history mitigation (RISK-12, EC-69): it answers "what was prescribed, when, and was it changed". Its own risk is a lost audit row when the audited action succeeds — prevented by writing the audit row in the **same `SaveChangesAsync` transaction** as the action, never in a fire-and-forget background call.
+**5. Data integrity check.** Silent-loss risk: session expiry mid-consultation. Prevented by in-place re-auth over a preserved draft (E-41) plus F-10's server-side autosave, so nothing depends on the browser holding the only copy. Screen lock blurs but does not unmount, so no state is discarded (E-62).
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/AuditServiceTests.cs` — each `AuditAction` maps to the right `EntityKind`; detail text never contains free-text clinical content beyond an identifier.
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/AuditControllerTests.cs` — an `UPDATE`/`DELETE` attempt against `AuditEvent` via the context throws; a rolled-back finalize leaves **no** audit row (transactional coupling).
-- Frontend unit: `audit-log.component.spec.ts` (filter wiring).
-- E2E: `frontend/e2e/audit-trail.spec.ts` — finalize a visit, then confirm `/settings/audit` shows a `VisitFinalized` row for it (**EC-69**).
+- Backend unit: `PMS.Application.Tests/Services/AuthServiceTests.cs` — hash verification, wrong password, expiry calculation.
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/AuthEndpointTests.cs` — login sets an `HttpOnly`/`Secure`/`SameSite=Strict` cookie; protected endpoint returns 401 without it; `reauth` returns a fresh cookie.
+- Frontend unit: `features/auth/LoginPage.test.tsx`, `shared/hooks/useIdleTimer.test.ts`.
+- E2E: `PMS.E2E/auth.spec.ts` — golden path login/logout; **severe edge case E-41**: idle past the lock timeout while a draft consultation is open, re-authenticate, and confirm the typed text is still on screen and still on the server.
 
 **7. Acceptance criteria.**
-- [ ] Each of the twelve listed actions writes exactly one `AuditEvent` row with `OccurredAt`, `EntityKind`, `EntityId` and `Action` populated.
-- [ ] Attempting to modify or delete an existing `AuditEvent` through the application throws and the transaction rolls back.
-- [ ] An action that fails and rolls back leaves zero audit rows for that attempt.
-- [ ] `/settings/audit` filtered to a single day returns only rows whose `OccurredAt` falls in that clinic-timezone day.
-- [ ] Audit rows contain no complaint or diagnosis free text (identifiers only).
+- [ ] Login with correct credentials sets a cookie flagged `HttpOnly`, `Secure`, `SameSite=Strict`; no token is written to `localStorage` or `sessionStorage` (assert in the E2E spec).
+- [ ] Any `/api/*` route other than `health` and `auth/login` returns 401 without a valid cookie.
+- [ ] After 5 minutes idle the screen-lock overlay covers all PHI; the underlying route is still mounted (E-62).
+- [ ] Re-authenticating from the overlay restores the exact view, and a draft open before the lock retains every typed character (E-41).
+- [ ] Patient-data inputs render with `autocomplete="off"` (E-65).
 
-**8. Effort & dependencies.** **M (L while OQ-12 open).** Depends on F-1, F-3. Depended on by F-7, F-10, F-12, F-13, F-16, F-17, F-18, F-20.
+**8. Effort & dependencies.** **L (M after the C-44 session call).** Depends on F-1. Blocks F-3, F-5, F-21 and effectively every authenticated feature.
 
 ---
 
-### F-6 — ClinicProfile + first-run setup gate
+### F-3 — ClinicProfile + first-run setup gate
 
-**1. Readiness — Needs decision (OQ-5).** The Blocker C-22 was "no entity to hang the prescription header on"; brainstorm §7.1 and R-6 converge on adding `ClinicProfile`, so the **entity** is decided. What is not decided is its exact content.
+**1. Readiness.** **Needs decision.**
+> **Assumption:** the entity and the gate are settled by **REC-4** (Tier 1, converged) and are built as specified; what remains open is the *content* — **Q-4** (header/footer text, registration number, who supplies the signature image). Building against: fields exactly as in §4, signature stored as an uploaded PNG ≤ 200 KB in `ClinicProfile.SignatureImage`, footer free text ≤ 500 characters, and **no prescription can be printed until `IsSetupComplete` is true** (E-1). If the doctor supplies no signature image, the printed footer shows a ruled signature area instead — never a broken-image placeholder.
 
-> **Assumption (OQ-5 — what goes in the prescription header/footer):** building the §7.1 field set — clinic name, doctor name, qualifications, registration number, address, phone, footer note, logo — with **clinic name and doctor name mandatory** and everything else optional. The layout renders only populated fields. If the owner's answer adds a field (e.g. a scanned signature image), it is an additive migration plus one print-layout slot, not a redesign.
-
-**2. Data model.** `ClinicProfile` per §4, singleton (fixed seed `Id`, check constraint ensuring a single row). Migration: **`AddClinicProfile`**. Logo stored as `varbinary(max)` with a 512 KB application-level cap.
+**2. Data model.** `ClinicProfile` singleton (§4). Migration: **`AddClinicProfile`**. `IsSetupComplete` is set by the service only when `ClinicName`, `DoctorName` and `DoctorRegistrationNo` are all non-empty and `TemperatureUnit` is chosen (E-24).
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| GET | `/api/clinic-profile` | — | `ClinicProfileDto` | 200, 401 | Cookie |
-| PUT | `/api/clinic-profile` | `UpdateClinicProfileRequest` | `ClinicProfileDto` | 200, 400, 401 | Cookie |
-| PUT | `/api/clinic-profile/logo` | multipart file | `ClinicProfileDto` | 200, 400, 413, 401 | Cookie |
-| DELETE | `/api/clinic-profile/logo` | — | 204 | 204, 401 | Cookie |
-| GET | `/api/clinic-profile/setup-status` | — | `SetupStatusDto { IsSetupComplete, MissingFields[] }` | 200, 401 | Cookie |
+| GET | `/api/clinic-profile` | — | `ClinicProfileResponse` | 200, 404 | cookie |
+| PUT | `/api/clinic-profile` | `UpsertClinicProfileRequest` | `ClinicProfileResponse` | 200, 400 | cookie |
+| POST | `/api/clinic-profile/signature` | multipart `file` | `ClinicProfileResponse` | 200, 400, 413 | cookie |
+| DELETE | `/api/clinic-profile/signature` | — | `ClinicProfileResponse` | 200 | cookie |
 
-**4. Frontend design.**
-- `features/clinic-setup/clinic-setup.component.ts` — route `/setup`; `ClinicProfileService.get()`, `.update(req)`, `.uploadLogo(file)`, `.getSetupStatus()`.
-- `core/clinic-setup.guard.ts` — redirects every route except `/setup`, `/login` and `/settings/security` to `/setup` while `IsSetupComplete === false` (**EC-1**).
-- `features/settings/clinic-profile.component.ts` — route `/settings/clinic`, same form after first run.
-- The print component (F-17) refuses to render and shows "Complete clinic setup first" while `IsSetupComplete` is false.
+**4. Frontend design.** `features/setup/FirstRunSetupPage.tsx` (route `/setup`), `features/clinic/ClinicProfilePage.tsx` (route `/settings/clinic`) — both render the same `ClinicProfileForm.tsx`. `features/clinic/clinicApi.ts` (`getProfile(): Promise<ClinicProfile>`, `saveProfile(req): Promise<ClinicProfile>`, `uploadSignature(file): Promise<ClinicProfile>`), `features/clinic/useClinicProfile.ts`. A router-level guard in `routes.tsx` redirects to `/setup` whenever `session.setupComplete === false` (E-1).
 
-**5. Data integrity check.** No duplicate/orphan exposure (singleton row). The exposure it closes is a **deliverable** one (EC-1): a prescription printed with a blank header is not a usable clinical document, so printing is blocked until setup completes. Long clinic/doctor names truncate with an ellipsis **in the header only** — the stored value is never truncated (EC-11).
+**5. Data integrity check.** No patient data. The integrity risk it removes is E-1 — a prescription printed with no clinic identity, which is an unusable clinical document. The gate makes that state unreachable rather than merely unlikely.
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/ClinicProfileServiceTests.cs` — `IsSetupComplete` flips true only when clinic name and doctor name are both non-blank after trimming; oversized logo rejected.
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/ClinicProfileControllerTests.cs` — a second POST cannot create a second profile row; logo round-trips with content type.
-- Frontend unit: `clinic-setup.component.spec.ts`, `clinic-setup.guard.spec.ts`.
-- E2E: `frontend/e2e/first-run-setup.spec.ts` — **EC-1**: fresh database, log in, every navigation lands on `/setup`; complete it and printing becomes available.
+- Backend unit: `PMS.Application.Tests/Services/ClinicProfileServiceTests.cs` — `IsSetupComplete` transitions, oversize-signature rejection.
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/ClinicProfileEndpointTests.cs` — PUT then GET round-trip; signature upload persists bytes.
+- Frontend unit: `features/clinic/ClinicProfilePage.test.tsx` — required-field validation, unit selector.
+- E2E: `PMS.E2E/first-run.spec.ts` — **E-1**: a fresh database routes to `/setup`, and the prescription action is unreachable until the profile is saved.
 
 **7. Acceptance criteria.**
-- [ ] On a fresh database, any route other than `/setup`, `/login`, `/settings/security` redirects to `/setup` (EC-1).
-- [ ] Saving with a blank clinic name or doctor name returns 400 and `IsSetupComplete` stays false.
-- [ ] After a complete save, `/setup` is no longer forced and the prescription preview renders the header with the saved values.
-- [ ] A 300-character clinic name is stored in full (queryable in SSMS) and renders truncated with an ellipsis in the printed header (EC-11).
-- [ ] Uploading a 2 MB logo returns 413 with a `ProblemDetails` body.
-- [ ] `TimeZoneId` set here is the timezone every date in the app renders in (F-1 clock).
+- [ ] With an empty `ClinicProfile` table, every authenticated route redirects to `/setup`.
+- [ ] Saving clinic name, doctor name, registration number and temperature unit sets `IsSetupComplete = true` and lifts the redirect.
+- [ ] `POST /api/prescriptions/...` returns 409 with a `ProblemDetails` naming setup as incomplete while `IsSetupComplete` is false (E-1).
+- [ ] An uploaded signature renders in the prescription preview; with no signature, a ruled signature area renders instead.
+- [ ] The chosen temperature unit is displayed alongside every stored temperature in UI and print (E-24).
 
-**8. Effort & dependencies.** **S (L while OQ-5 open).** Depends on F-1, F-3. Depended on by F-13 (setup gate), F-17 (header render).
+**8. Effort & dependencies.** **L (S after Q-4).** Depends on F-1, F-2. **Blocks F-4 and F-14** — nothing prints until this exists (C-32 / RSK-4).
 
 ---
 
-### F-7 — Patient entity + registration form
+### F-4 — Doctor-configured settings (gender list, vitals reasons, plausibility ranges)
 
-**1. Readiness — Needs decision (OQ-7, OQ-14).**
+**1. Readiness.** **Needs decision.**
+> **Assumption (Q-9):** gender options are a doctor-editable list seeded with `Female`, `Male`, `Other`, `Not stated` — the seed is data, editable in the UI, and **"Not stated" is never removable** (E-23).
+> **Assumption (Q-10):** temperature unit is chosen once in `ClinicProfile` (E-24); BP is always mmHg, stored as two integers. Plausibility thresholds are **empty by default** and entered by the doctor in `VitalRangeSetting`; when a threshold is blank, no warning fires. Warnings are **soft — confirm and continue, never a hard block** (E-12). **This plan does not author any clinical range; the system enforces only what the doctor enters.**
+> **Assumption (Q-2, shared with F-11):** vitals not-recorded reasons seeded as `Equipment unavailable`, `Patient declined`, `Not clinically indicated`, `Other` (§5.2), doctor-editable.
 
-> **Assumption (OQ-7 — DOB vs. age):** building **D-3 option C** as converged — `DateOfBirth` optional, plus `AgeAtRegistrationYears`/`AgeAtRegistrationMonths` stored **with `AgeCapturedOn`**. Display derives age from DOB when present and from age + capture date otherwise, marked "approx." in the second case. Sub-year display supported ("3 months", "11 days") so a newborn never prints as "0" (EC-12).
->
-> **Assumption (OQ-14 — gender value list):** building a **configurable lookup seeded with `Male`, `Female`, `Other`, `Unspecified`**, stored as a string on `Patient`, editable at `/settings/lookups`. The list is **not hardcoded to two values** (EC-24). If the owner's list differs, it is a seed-data change, not a schema change.
-
-**2. Data model.** `Patient` per §4. Load-bearing constraints: **no unique constraint on phone** (EC-28 — families share a number; D-2 option B was rejected); `NormalizedName`, `PhonePrimaryDigits`, `PhoneAltDigits` are application-maintained derived columns written on every save (feeding F-8). `DisplayName` is **one field, not first/last** (EC-22). Migration: **`AddPatient`**.
-
-Save-time normalisation (R-21): trim leading/trailing whitespace, collapse internal runs of whitespace, normalise smart quotes to straight, Unicode NFC-normalise, then derive `NormalizedName` (case-folded + diacritic-stripped) and `*Digits` (non-digits removed). Without this, `" Ramesh"` and `"Ramesh"` become two patients (EC-64 → EC-27).
+**2. Data model.** `SettingOption`, `VitalRangeSetting` (§4). Migration: **`AddClinicSettings`**, including a seed of the option lists above via `HasData`.
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| POST | `/api/patients` | `CreatePatientRequest { DisplayName, DateOfBirth?, AgeYears?, AgeMonths?, Gender, PhonePrimary?, PhoneAlt?, Notes?, ConfirmedNotDuplicate }` | `PatientDto` | 201, 400, 409 (near-match unconfirmed — F-9), 401 | Cookie |
-| GET | `/api/patients/{id}` | — | `PatientDto` | 200, 404, 401 | Cookie |
-| PUT | `/api/patients/{id}` | `UpdatePatientRequest` | `PatientDto` | 200, 400, 404, 409, 401 | Cookie |
-| GET | `/api/settings/gender-options` | — | `LookupOptionDto[]` | 200, 401 | Cookie |
+| GET | `/api/clinic-settings/options?category=Gender` | — | `SettingOptionResponse[]` | 200 | cookie |
+| PUT | `/api/clinic-settings/options/{category}` | `SettingOptionListRequest` | `SettingOptionResponse[]` | 200, 400 | cookie |
+| GET | `/api/clinic-settings/vital-ranges` | — | `VitalRangeResponse[]` | 200 | cookie |
+| PUT | `/api/clinic-settings/vital-ranges` | `VitalRangeListRequest` | `VitalRangeResponse[]` | 200, 400 | cookie |
 
-Backed by `PatientService.CreateAsync`, `.GetAsync`, `.UpdateAsync` calling `IPatientRepository`.
+**4. Frontend design.** `features/clinic/ClinicSettingsPage.tsx` (route `/settings/options`), `features/clinic/VitalRangesPage.tsx` (route `/settings/vitals-ranges`), `features/clinic/clinicApi.ts` extended with `getOptions(category)`, `saveOptions(category, items)`, `getVitalRanges()`, `saveVitalRanges(items)`; hooks `useSettingOptions(category)` and `useVitalRanges()`.
 
-**4. Frontend design.**
-- `features/patients/patient-form.component.ts` — routes `/patients/new` and `/patients/:id/edit`. Reactive form; DOB and age fields are mutually informative (entering DOB disables the age fields and vice versa). `autocomplete="off"` on every control (EC-70).
-- `features/patients/patient-detail.component.ts` — route `/patients/:id`; shows derived age with an "approx." marker, and `ContactUpdatedOn` beside the phone numbers (EC-26).
-- `features/patients/patient.service.ts` — `create(req: CreatePatientRequest): Observable<PatientDto>`, `get(id: string)`, `update(id: string, req: UpdatePatientRequest)`, `genderOptions()`.
-- `features/patients/models/patient.model.ts` — interfaces mirroring the DTOs.
-- `shared/age-display/age-display.component.ts` — renders years / months / days per EC-12.
-
-**5. Data integrity check.** Two exposures. **Mutable history** (C-10): a bare age silently rots — closed by storing `AgeCapturedOn` alongside it and always deriving display from the pair. **Duplicate** (EC-64): whitespace and smart-quote variants of the same name — closed by the normalisation step above, which also feeds F-9's near-match check. Patient edits are in-place (demographics are current facts, not clinical history); the prescription snapshot (F-17) is what protects past prescriptions from a later demographic edit.
+**5. Data integrity check.** Duplicate/consistency risk: free-text gender producing `M`/`Male`/`male` in one column (C-20). Prevented by storing only values drawn from `SettingOption`. Deactivating an option is a soft flag (`IsActive=false`) so historical patient rows never lose their recorded value — no orphaned lookups.
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/PatientServiceTests.cs` — normalisation (EC-64), digits extraction from `+91 98765 43210` (EC-63), future DOB rejected / today's DOB accepted (**EC-15**), age display for a 3-month-old (**EC-12**), age > 120 accepted with a warning flag (EC-17), single-name patient accepted (**EC-22**), patient with no phone accepted (**EC-20**).
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/PatientsControllerTests.cs` — POST then GET round-trip preserves a Devanagari name byte-for-byte (**EC-62**); two patients may share a phone number (**EC-28**).
-- Frontend unit: `patient-form.component.spec.ts` (DOB/age mutual exclusion, validation messages), `age-display.component.spec.ts` (EC-12), `patient.service.spec.ts`.
-- E2E: `frontend/e2e/patient-registration.spec.ts` — golden path register-and-view; edge case **EC-21** (patient does not know DOB → age path) and **EC-22** (single-name patient).
+- Backend unit: `PMS.Application.Tests/Services/ClinicSettingsServiceTests.cs` — cannot delete `Not stated`; blank threshold means no warning emitted.
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/ClinicSettingsEndpointTests.cs` — seed present after migration; PUT reorders and deactivates.
+- Frontend unit: `features/clinic/VitalRangesPage.test.tsx` — blank threshold submits as null, not zero.
+- E2E: `PMS.E2E/settings.spec.ts` — **E-12**: a doctor-set upper threshold produces a confirmable warning on the consultation page, and confirming still saves the value.
 
 **7. Acceptance criteria.**
-- [ ] A patient can be saved with a name and gender only — no phone, no DOB (EC-20, BRD *Patient Management*).
-- [ ] A patient saved with age 3 months displays as "3 months (approx.)", never "0" (EC-12).
-- [ ] A DOB in the future is rejected with 400; today's date is accepted (EC-15).
-- [ ] `"  Ramesh  "` and `"Ramesh"` produce identical `DisplayName` and `NormalizedName` values in the database (EC-64).
-- [ ] `"+91 98765 43210"` stores as entered and yields `PhonePrimaryDigits = "919876543210"` (EC-63).
-- [ ] A name in Devanagari or Arabic script saves, reloads and renders unchanged (EC-62).
-- [ ] The gender dropdown includes an "Unspecified" option and is driven by `/api/settings/gender-options`, not a hardcoded array (EC-24).
-- [ ] The patient detail page shows the date contact details were last updated (EC-26).
+- [ ] The gender dropdown in F-5 renders exactly the active `SettingOption` rows, in `DisplayOrder`.
+- [ ] Deactivating a gender option leaves existing patient records displaying their stored value unchanged.
+- [ ] With all `VitalRangeSetting` rows blank, entering any numeric vital produces **no** warning.
+- [ ] Setting a threshold then entering a value outside it produces a warning that can be confirmed and saved (E-12) — never a block.
+- [ ] No range value is present in source code; all come from the database.
 
-**8. Effort & dependencies.** **M (L while OQ-7/OQ-14 open).** Depends on F-1, F-3, F-5. Depended on by F-8, F-9, F-10, F-11, F-13 — the widest fan-out in the plan.
+**8. Effort & dependencies.** **L (S after Q-9, Q-10).** Depends on F-3. Blocks F-5 (gender list) and F-11 (reasons and ranges).
 
 ---
 
-### F-8 — Patient search + recent patients
+### F-5 — Patient registration & profile
 
-**1. Readiness — Ready** for search; **Needs decision (OQ-16)** for the "recent patients" definition only.
+**1. Readiness.** **Needs decision.**
+> **Assumption (Q-16):** age is captured as **`DateOfBirth` when known, otherwise `ApproxAgeYears` + `AgeRecordedOn`; a bare mutable age is never stored** (C-19, E-9, E-21). Display renders `~40 (recorded 2026)` for approximations, age in days under one month and months under two years (E-11), and rejects a future DOB.
+> **Assumption (Q-7):** phone is **optional but prompted** — saving without one is allowed, the profile shows "No contact recorded", and the profile is flagged incomplete (E-8, E-20).
+> **Assumption (Q-9):** gender values come from F-4.
+Name is a **single free-text field** — a required-surname design rejects real patients (E-13, C-18).
 
-> **Assumption (OQ-16 — recently viewed or recently consulted, and how many):** building **last 10 recently consulted** (brainstorm C-26 default), derived from `Visit.StartedAt` — not a viewed-history table. Switching to "recently viewed" later would require a new tracking table, so this is the assumption most worth confirming early.
-
-Implements **R-17** and the B-6 budgets: **type-ahead < 300 ms**, full history load < 2 s. The 2–5 second figure from BRD *Success Criteria* is retired per C-9 — this is the tighter of two conflicting BRD numbers, adopted as the brainstorm converged.
-
-**2. Data model.** No new entity. Migration: **`AddPatientSearchIndexes`** — non-clustered indexes on `Patient.NormalizedName`, `Patient.PhonePrimaryDigits`, `Patient.PhoneAltDigits`, and a filtered index on `RecordStatus = Active`.
+**2. Data model.** `Patient` (§4). Migration: **`AddPatient`**. `NormalizedName` = trimmed, internal whitespace collapsed, case-folded (REC-18, E-60); `NormalizedPhone` = digits only (E-59). Both are written by `PatientService` on every save, never by the client. A DB check constraint enforces `DateOfBirth IS NOT NULL OR ApproxAgeYears IS NOT NULL OR both NULL` — a bare `ApproxAgeYears` without `AgeRecordedOn` is rejected at the service layer (this is the load-bearing rule from E-9).
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| GET | `/api/patients/search?query=&includeArchived=false&limit=20` | — | `PatientSearchResultDto[]` | 200, 400, 401 | Cookie |
-| GET | `/api/patients/recent?limit=10` | — | `RecentPatientDto[]` | 200, 401 | Cookie |
+| POST | `/api/patients` | `CreatePatientRequest` | `PatientResponse` | 201, 400, 409 (duplicate-confirmation required, F-6) | cookie |
+| GET | `/api/patients/{id}` | — | `PatientDetailResponse` | 200, 404 | cookie |
 
-`PatientSearchResultDto { Id, DisplayName, AgeDisplay, Gender, PhoneTail, LastVisitDate, RecordStatus }` — **the disambiguator fields are mandatory in the DTO**, because no picker anywhere may show a bare name (EC-29). Backed by `PatientService.SearchAsync(string query, bool includeArchived, int limit)`: if the query is digits-heavy it matches `PhonePrimaryDigits`/`PhoneAltDigits` by `Contains`; otherwise it matches `NormalizedName` by `Contains` on the accent-folded, case-folded form (C-4 default). Archived patients are excluded by default (F-10).
+**4. Frontend design.** `features/patients/PatientForm.tsx` (routes `/patients/new` and, in F-8, `/patients/:id/edit`), `features/patients/PatientProfile.tsx` (route `/patients/:id`), `features/patients/patientsApi.ts` (`createPatient(req): Promise<Patient>`, `getPatient(id): Promise<PatientDetail>`), `features/patients/usePatients.ts` (`useCreatePatient()`, `usePatient(id)`). Submit uses `shared/hooks/useSubmitOnce.ts` (E-43/E-46). The profile header always shows name + phone tail + age/DOB (REC-12, feeding F-7's picker).
 
-**4. Frontend design.**
-- `features/patients/patient-search.component.ts` — route `/patients`; input debounced 200 ms with `switchMap` so in-flight requests are cancelled, keeping the perceived budget under 300 ms.
-- `shared/patient-picker/patient-picker.component.ts` — reusable type-ahead used by the consultation and appointment screens; **always renders name + age + phone tail + last visit date** (EC-29) and **never auto-selects a single result** (EC-28).
-- `patient.service.ts` gains `search(query: string, opts?): Observable<PatientSearchResultDto[]>` and `recent(): Observable<RecentPatientDto[]>`.
-- Empty result renders `<pms-empty-state>` with "Register '<typed text>' as a new patient" — this is the search-first entry point for F-9 (**EC-7**).
-- Routes carry the opaque `Guid`, never a name or phone (EC-71).
-
-**5. Data integrity check.** Search *is* a duplicate-prevention mechanism (C-4, RISK-19): slow or coarse search pushes the doctor straight to "add new patient". Prevented by the 300 ms budget, digits-normalised phone matching (EC-63), diacritic-insensitive name matching (EC-62) and returning **all** phone matches rather than auto-selecting (EC-28).
+**5. Data integrity check.** Duplicate risk is the dominant one (C-23, E-25). This feature contributes the *normalisation* half — whitespace and phone-format variants collapse before comparison (E-60, E-59) — and F-6 adds detection. Mutable-history risk from a bare age is removed by the DOB/approx-age rule (E-9). Create is idempotent per submit token, so a double-click cannot create two patients (E-46).
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/PatientSearchTests.cs` — `"ramesh"` matches `"Rameśh"` (EC-62); `"9876543210"` matches `"+91 98765 43210"` (EC-63); a family of three sharing one number returns three rows (**EC-28**); archived patients excluded by default.
-- Backend integration: `PatientsControllerTests.SearchTests` — a seeded 5,000-patient set returns in < 300 ms server-side (asserted with a generous CI margin and recorded); empty query returns 400, not the whole table.
-- Frontend unit: `patient-search.component.spec.ts` (debounce + cancellation), `patient-picker.component.spec.ts` (never auto-selects; always shows disambiguators — **EC-29**).
-- E2E: `frontend/e2e/patient-search.spec.ts` — golden path find-by-partial-name; **EC-7** (no results → register CTA prefilled with the typed text); **EC-29** (two same-name same-age patients are distinguishable in the list).
+- Backend unit: `PMS.Application.Tests/Services/PatientServiceTests.cs` — normalisation, DOB-in-future rejection, approx-age-without-date rejection, incomplete-profile flag.
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/PatientsEndpointTests.cs` — create then fetch; unicode name round-trip (E-57).
+- Frontend unit: `features/patients/PatientForm.test.tsx` — mononym accepted (E-13), no-phone accepted with prompt (E-20), approx-age path.
+- E2E: `PMS.E2E/patient-registration.spec.ts` — golden path; **E-8**: register with name only and confirm the incomplete flag is visible on the profile.
 
 **7. Acceptance criteria.**
-- [ ] Typing three characters returns results in under 300 ms measured server-side on a 5,000-patient database (B-6).
-- [ ] Every row in every patient list shows name, age, phone tail and last visit date — no bare-name rows anywhere in the app (EC-29).
-- [ ] Searching a phone number shared by three family members returns all three and selects none automatically (EC-28).
-- [ ] `"Ramesh"`, `"ramesh"` and `"Rameśh"` each return the same patient (EC-62).
-- [ ] A search with no results shows the "Register '<typed>' as a new patient" action (EC-7).
-- [ ] Archived patients do not appear unless `includeArchived=true` is explicitly set (F-10).
-- [ ] `/today` shows the last 10 consulted patients; with no visits, it shows an empty state (EC-2).
-- [ ] No route URL in the app contains a patient name or phone number (EC-71).
+- [ ] A patient with a single-word name and no phone can be saved, and the profile shows "Profile incomplete" and "No contact recorded" (E-8, E-13, E-20).
+- [ ] Entering an approximate age stores `ApproxAgeYears` + `AgeRecordedOn` and displays `~40 (recorded 2026)`; the API rejects a bare age with 400 (E-9, E-21).
+- [ ] A DOB of today is accepted and the age displays in days (E-11); a future DOB is rejected with 400.
+- [ ] `"  Ravi   Kumar  "` and `"Ravi Kumar"` both persist `NormalizedName = "ravi kumar"` (E-60).
+- [ ] A name containing non-Latin script saves, displays and re-fetches unchanged (E-57).
+- [ ] Double-clicking Save creates exactly one patient row (E-46).
 
-**8. Effort & dependencies.** **M (L while OQ-16 open).** Depends on F-7. Depended on by F-9, F-11, F-13, F-20.
+**8. Effort & dependencies.** **L (M after Q-7, Q-16, Q-9).** Depends on F-1, F-2, F-4. Blocks F-6, F-7, F-8, F-9.
 
 ---
 
-### F-9 — Search-first registration + near-match duplicate warning
+### F-6 — Duplicate detection at registration + `merged_into` pointer
 
-**1. Readiness — Ready.** D-2 converged on **D + C together** (search-first as prevention, near-match warning as the safety net). Merge tooling is parking-lot **P-1** and gets no section here.
+**1. Readiness.** **Needs decision.**
+> **Assumption (Q-13):** the identity rule is REC-2's shape — a candidate is flagged when **(normalised name similarity ≥ 0.85 by trigram/Levenshtein ratio AND same `NormalizedPhone`) OR (normalised name similarity ≥ 0.85 AND same `DateOfBirth`)**. The check **warns, never blocks** (a blocking rule is worse than a duplicate). The 0.85 threshold and the "who resolves it" answer are exactly what Q-13 must confirm; the doctor is the only user, so resolution is a confirm dialog. **Merge tooling is Phase 2** (§11) — this feature ships detection plus the non-destructive `MergedIntoPatientId` pointer only (E-26).
 
-**2. Data model.** No new entity or column. Migration: **none**. `CreatePatientRequest.ConfirmedNotDuplicate: bool` (F-7) is the mechanism.
+**2. Data model.** Adds `MergedIntoPatientId:Guid?` usage and an index on `NormalizedPhone` and `NormalizedName`. Migration: **`AddPatientDuplicateIndexes`**. No row is ever deleted or rewritten by this feature.
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| GET | `/api/patients/near-matches?name=&phone=&ageYears=` | — | `PatientSearchResultDto[]` | 200, 401 | Cookie |
-| POST | `/api/patients` (F-7) | `CreatePatientRequest` | `PatientDto` | **409 `ProblemDetails` with `nearMatches[]` when matches exist and `ConfirmedNotDuplicate` is false**; 201 otherwise | Cookie |
+| POST | `/api/patients/duplicate-check` | `DuplicateCheckRequest{fullName,phone,dateOfBirth}` | `DuplicateCandidateResponse[]` | 200 | cookie |
+| POST | `/api/patients?confirmDuplicate=true` | `CreatePatientRequest` | `PatientResponse` | 201 | cookie |
+| POST | `/api/patients/{id}/mark-merged` | `MarkMergedRequest{mergedIntoPatientId,note}` | `PatientResponse` | 200, 400, 409 | cookie |
 
-`PatientService.FindNearMatchesAsync(string name, string? phone, int? ageYears)` — matches on (a) exact `PhonePrimaryDigits`/`PhoneAltDigits`, or (b) `NormalizedName` similarity within an age tolerance of ±2 years. The 409 is server-enforced, so the rule cannot be bypassed by calling the API directly.
+`POST /api/patients` (F-5) returns **409 + candidate list** when duplicates are found and `confirmDuplicate` is absent.
 
-**4. Frontend design.**
-- `features/patients/patient-form.component.ts` is **reachable only from** `/patients?query=<text>` when the result list is empty, or from the picker's "not found" action. The route `/patients/new` requires a `fromSearch` query parameter; a direct hit without it redirects to `/patients` with a message (this is the "removes a step" property of D-2 D — the doctor is searching anyway).
-- `shared/confirm-dialog/duplicate-warning.component.ts` — rendered on a 409; lists the near-matches with full disambiguators and offers "Open existing patient" (primary) or "This is a different person — register anyway" (secondary, sets `ConfirmedNotDuplicate = true`).
+**4. Frontend design.** `features/patients/DuplicateWarningDialog.tsx` (rendered from `PatientForm.tsx`), `features/patients/usePatientDuplicates.ts` (`useDuplicateCheck()` — debounced 400 ms on name/phone blur), `patientsApi.ts` gains `checkDuplicates(req)` and `markMerged(id, req)`. Every candidate row uses `shared/components/PatientPickerRow.tsx` — **name + phone tail + age/DOB + last visit date, never name alone** (REC-12, E-28).
 
-**5. Data integrity check.** This feature is the **Duplicate** mitigation (RISK-2, EC-27). Search-first prevents; the near-match 409 catches what prevention misses; the archive-not-delete interim (F-10) ensures a duplicate discovered later is never "fixed" by a delete that would orphan visits (EC-30). Full merge is **P-1**, deferred with the risk stated there.
+**5. Data integrity check.** This is the Duplicate-mode feature. Detection prevents most split histories (E-25, E-30); `mark-merged` writes a pointer and sets `Status=Inactive` so **both histories remain readable and neither is destroyed** (E-26, E-33). No destructive operation exists in this feature's API surface at all.
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/PatientDuplicateTests.cs` — same phone triggers a near-match; same name + age within tolerance triggers one; `ConfirmedNotDuplicate = true` bypasses; whitespace/case variants trigger (EC-64).
-- Backend integration: `PatientsControllerTests.DuplicateTests` — POST with an existing phone returns **409** with a populated `nearMatches` array; the same POST with the confirm flag returns 201.
-- Frontend unit: `duplicate-warning.component.spec.ts`, `patient-form.component.spec.ts` (direct `/patients/new` without `fromSearch` redirects).
-- E2E: `frontend/e2e/duplicate-prevention.spec.ts` — **EC-27** golden path: attempt to register an existing patient, get the warning, open the existing record instead; and the override path for **EC-29** (two genuinely different people, same name and age).
+- Backend unit: `PMS.Application.Tests/Services/PatientDuplicateServiceTests.cs` — name-similarity boundary either side of the threshold, shared household phone returns *all* matches (E-27), self-exclusion on edit.
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/PatientDuplicateEndpointTests.cs` — 409 without confirm, 201 with confirm, `mark-merged` rejects a cycle.
+- Frontend unit: `features/patients/DuplicateWarningDialog.test.tsx` — candidate rows show four disambiguating fields (E-28).
+- E2E: `PMS.E2E/patient-duplicates.spec.ts` — **E-25**: register the same person twice and confirm the warning appears before the second record is created; **E-27**: two family members on one phone both appear in the candidate list.
 
 **7. Acceptance criteria.**
-- [ ] Navigating directly to `/patients/new` without coming from a search redirects to `/patients` (D-2 D).
-- [ ] `POST /api/patients` with a phone number already on file returns 409 listing the matching patients, even when called outside the UI.
-- [ ] The warning dialog shows each near-match with name, age, phone tail and last visit date (EC-29).
-- [ ] Choosing "Open existing patient" navigates to that patient and creates **no** new record.
-- [ ] Choosing "register anyway" creates the patient and writes an audit entry recording that a duplicate warning was overridden.
-- [ ] A patient whose name differs only by leading whitespace or a smart quote is detected as a near-match (EC-64).
+- [ ] Registering a name+phone already on file returns 409 with candidates before any row is written (E-25).
+- [ ] The warning is dismissible — confirming creates the patient (warn, never block).
+- [ ] A phone shared by three family members returns all three as candidates; none is auto-selected (E-27).
+- [ ] Every candidate row displays name, phone tail, age/DOB and last visit date (E-28, REC-12).
+- [ ] `mark-merged` leaves both patients' visits queryable and deletes nothing (E-26).
+- [ ] No endpoint in this feature deletes or overwrites a patient row.
 
-**8. Effort & dependencies.** **M.** Depends on F-7, F-8. Depended on by nothing structurally; it is a guard on F-7's write path.
+**8. Effort & dependencies.** **L (M after Q-13).** Depends on F-5. Blocks nothing structurally, but its absence raises RSK-2 for every downstream clinical record.
 
 ---
 
-### F-10 — Patient archive lifecycle (no hard delete)
+### F-7 — Patient search, recent patients, disambiguating picker
 
-**1. Readiness — Ready.** R-4 converged: archive, never hard-delete, for any patient with visits.
+**1. Readiness.** **Needs decision.**
+> **Assumption:** search semantics per C-22/C-35, for which **brainstorm §12 carries no `Q-`** (this plan's own finding — see §9; it is adjacent to Q-13). Building against: **case-insensitive substring match on `NormalizedName`, plus digits-only match on `NormalizedPhone` including a last-4-digits suffix match**; minimum query length 2; 300 ms debounce; results ranked exact-prefix → prefix → substring → phone; **inactive and merged patients are excluded by default with an "include inactive" toggle**. Fuzzy name matching (the real fix for E-30) uses the same similarity function as F-6 and is applied only when the exact-match set is empty.
+> **NFR:** `p95 ≤ 2 s from keystroke to rendered result at 5,000 patients / 25,000 visits` (C-12, REC-19) — met by the `NormalizedName`/`NormalizedPhone` indexes from F-6, server-side `TOP 20`, and no client-side filtering.
 
-**2. Data model.** Uses `Patient.RecordStatus`, `ArchivedIntoPatientId`, `ArchivedOn`, `ArchiveNote` (added in `AddPatient`). Migration: **`AddPatientArchiveIndexes`** (filtered index supporting the active-only default in F-8).
+**2. Data model.** No new entities. Reuses the F-6 indexes; adds `LastVisitDate` as a projected read (computed in the query, not stored) for picker rows.
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| POST | `/api/patients/{id}/archive` | `ArchivePatientRequest { Reason, ArchivedIntoPatientId? }` | `PatientDto` | 200, 400, 404, 401 | Cookie |
-| POST | `/api/patients/{id}/restore` | — | `PatientDto` | 200, 404, 409 (has an active duplicate pointer), 401 | Cookie |
-| DELETE | `/api/patients/{id}` | — | 204 when the patient has **zero** visits and zero appointments; **409 `ProblemDetails`** otherwise, with the visit count and a link to archive | 204, 409, 404, 401 | Cookie |
+| GET | `/api/patients/search?query=&includeInactive=&take=` | — | `PatientSummaryResponse[]` | 200, 400 | cookie |
+| GET | `/api/patients/recent?take=10` | — | `PatientSummaryResponse[]` | 200 | cookie |
 
-**4. Frontend design.**
-- `features/patients/patient-detail.component.ts` gains an "Archive patient" action; the delete action is present only when the patient has no visits and no appointments, and always routes through `shared/confirm-dialog` naming the patient.
-- `patient.service.ts` gains `archive(id, req)`, `restore(id)`, `delete(id)`.
-- An archived patient's detail page shows a banner: "Archived on <date> — see <survivor name>" when `ArchivedIntoPatientId` is set (EC-30 interim pointer).
+`PatientSummaryResponse` always carries `fullName`, `phoneTail`, `ageDisplay`, `lastVisitDate`, `status`.
 
-**5. Data integrity check.** This feature closes the **Orphan** exposure (RISK-4, EC-37): a patient with visits can never be deleted, only archived, so clinical records never lose their parent. Archiving a duplicate with a pointer to the survivor is the stated interim until merge (**P-1**, EC-30) — never a delete.
+**4. Frontend design.** `features/patients/PatientSearch.tsx` (global, mounted in `AppLayout`; `/` focuses it — REC-16), `features/patients/PatientList.tsx` (route `/patients?query=`), `features/patients/RecentPatients.tsx` (on route `/`), `patientsApi.ts` gains `searchPatients(query, opts)` and `getRecentPatients(take)`, hooks `usePatientSearch(query)` (TanStack Query, `keepPreviousData`) and `useRecentPatients()`. Empty result renders `EmptyState` with an inline **"Register '<typed text>' as a new patient"** action (E-7). All rows are `PatientPickerRow.tsx` (E-28).
+
+**5. Data integrity check.** Wrong-patient selection (RSK-12, E-28) is the risk, and it is a clinical-record-attachment risk, not a cosmetic one. Prevented by never rendering a name-only row and never auto-selecting a single match. Duplicate creation via failed search (E-30) is mitigated by the fuzzy fallback plus E-7's inline register action feeding F-6's duplicate check.
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/PatientArchiveTests.cs` — delete with ≥1 visit throws the domain exception; archive sets status, timestamp and pointer; restore clears them.
-- Backend integration: `PatientsControllerTests.ArchiveTests` — `DELETE` on a patient with visits returns 409 and the row still exists in SQL afterwards (**EC-37**); an archived patient disappears from `/api/patients/search` but is still reachable by id.
-- Frontend unit: `patient-detail.component.spec.ts` (delete button hidden when visits exist; archive banner rendered).
-- E2E: `frontend/e2e/patient-archive.spec.ts` — **EC-37** golden path: try to delete a patient with history, be offered archive, archive, confirm they leave search but their visits remain viewable.
+- Backend unit: `PMS.Application.Tests/Services/PatientSearchServiceTests.cs` — last-4 phone match, ranking order, inactive exclusion, min-length rejection.
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/PatientSearchEndpointTests.cs` — seeded 5,000-row set, asserts result correctness and records elapsed time against the 2 s budget.
+- Frontend unit: `features/patients/PatientSearch.test.tsx` (debounce, `/` focus), `features/patients/RecentPatients.test.tsx` (empty state).
+- E2E: `PMS.E2E/patient-search.spec.ts` — golden path; **E-28**: two patients with identical name and age are distinguishable in the result list without opening either.
 
 **7. Acceptance criteria.**
-- [ ] `DELETE /api/patients/{id}` on a patient with any visit or appointment returns 409 and the row is unchanged in the database (EC-37).
-- [ ] An archived patient no longer appears in default search results but their visits remain fully viewable from history (EC-30).
-- [ ] Archiving with `ArchivedIntoPatientId` set renders a pointer banner on the archived record naming the survivor.
-- [ ] Archive and blocked-delete both write an `AuditEvent` (F-5).
-- [ ] No code path in the solution issues a `DELETE` against `Visit`, `Vitals`, `MedicationLine`, `PrescriptionIssue` or `VisitAmendment` — verified by an architecture test in `PMS.Infrastructure.Tests/NoHardDeleteTests.cs`.
+- [ ] Typing 4 digits matching the tail of a stored phone returns that patient (E-59).
+- [ ] Two patients sharing name and age render distinguishable rows (phone tail + last visit date) and neither is auto-selected (E-28).
+- [ ] A no-match query renders "No patient found" plus a register action pre-filled with the typed text (E-7).
+- [ ] With 5,000 patients seeded, the integration test's p95 search latency is ≤ 2 s (C-12, REC-19).
+- [ ] Recent-patients list is empty-stated, not blank, on a fresh install (E-2).
 
-**8. Effort & dependencies.** **S.** Depends on F-7, F-5. Depended on by F-22 (blocked) as its interim.
+**8. Effort & dependencies.** **L (M after the search-semantics call).** Depends on F-5 (and F-6's indexes). Blocks F-9.
 
 ---
 
-### F-11 — Appointment scheduling + daily list
+### F-8 — Patient edit + deactivate (no hard delete)
 
-**1. Readiness — Needs decision (OQ-9).** This is the one `Needs decision` with **no converged option** in the brainstorm doc — D-5 settles the appointment↔visit *link*, not the scheduling *model*. Hence a flat **L**.
+**1. Readiness.** **Needs decision.**
+> **Assumption (Q-6):** **no hard delete exists in Phase 1.** A patient is deactivated with a reason; visits remain intact and reachable (E-33, REC-7). Demographic edits are permitted and **written to the audit trail with old and new values** (F-17), never silently overwritten (C-17, §5.7). Retention period and right-to-erasure are deferred to §11 pending Q-6's legal input — the architecture does not foreclose them.
 
-> **Assumption (OQ-9 — time-slot calendar or simple dated list; are overlaps allowed?):** building a **simple dated list with an optional time**, not a slot calendar. No slot duration, no working-hours model, no capacity rule. Overlapping and same-day repeat bookings are **allowed with a warning** on the second booking for the same patient on the same day (EC-31). This is the smaller of the two builds and the larger one is additive: a slot calendar can be layered on `ScheduledFor` later without a data migration. **If the owner wants a slot calendar, this feature is a different, larger build — re-plan it rather than stretching this one.**
-
-**2. Data model.** `Appointment` per §4. `ClinicDate` is derived from `ScheduledFor` in the clinic timezone at write time and stored, so the daily list never depends on the browser's timezone (EC-48). Migration: **`AddAppointment`**.
+**2. Data model.** Adds `Status`, `InactiveReason` usage on `Patient` plus `RowVersion` concurrency token. Migration: **`AddPatientLifecycleFields`**.
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| POST | `/api/appointments` | `CreateAppointmentRequest { PatientId, ScheduledFor, ReasonNote?, AcknowledgedSameDay }` | `AppointmentDto` | 201, 400, 409 (same-day unacknowledged), 401 | Cookie |
-| GET | `/api/appointments?date=` | — | `AppointmentListItemDto[]` | 200, 400, 401 | Cookie |
-| GET | `/api/appointments/{id}` | — | `AppointmentDto` | 200, 404, 401 | Cookie |
-| PUT | `/api/appointments/{id}` | `UpdateAppointmentRequest { ScheduledFor, ReasonNote? }` | `AppointmentDto` | 200, 400, 404, 409 (not Scheduled), 401 | Cookie |
+| PUT | `/api/patients/{id}` | `UpdatePatientRequest` (carries `rowVersion`) | `PatientResponse` | 200, 400, 409 (concurrency or duplicate) | cookie |
+| POST | `/api/patients/{id}/deactivate` | `DeactivateRequest{reason}` | `PatientResponse` | 200, 400 | cookie |
+| POST | `/api/patients/{id}/reactivate` | — | `PatientResponse` | 200 | cookie |
 
-`AppointmentListItemDto` carries `PatientDisplayName`, `AgeDisplay`, `PhoneTail`, `Status`, `IsOverdue`, `VisitId?` — again, never a bare name (EC-29).
+**There is deliberately no `DELETE /api/patients/{id}`.**
 
-**4. Frontend design.**
-- `features/appointments/appointment-list.component.ts` — route `/appointments?date=YYYY-MM-DD`, defaults to today; also embedded as the "Today" panel on `/today`.
-- `features/appointments/appointment-form.component.ts` — route `/appointments/new`; uses `shared/patient-picker`.
-- `features/appointments/appointment.service.ts` — `create(req)`, `listByDate(date: string)`, `get(id)`, `update(id, req)`.
-- Same-day duplicate returns 409 → inline warning with "Book anyway" (EC-31).
-- Forward-dating months ahead is permitted with no reminder promise, per EC-40 (`accepted`, parking-lot P-2).
+**4. Frontend design.** `features/patients/PatientForm.tsx` reused at route `/patients/:id/edit`; `features/patients/DeactivatePatientDialog.tsx` (reason required) opened from `PatientProfile.tsx`; `patientsApi.ts` gains `updatePatient(id, req)`, `deactivatePatient(id, req)`, `reactivatePatient(id)`. Deactivated profiles render a persistent banner and are excluded from F-7 search by default.
 
-**5. Data integrity check.** **Duplicate** exposure (EC-31): two appointments for the same patient on the same day — allowed by design (morning review + evening follow-up) but warned on, so it is a deliberate act rather than an accident. **Orphan** exposure (appointment status vs. the visit behind it) is F-12 and F-16's job, not this feature's.
+**5. Data integrity check.** Orphan + mutable-history modes (RSK-7). No hard delete means a visit can never lose its parent (E-33). Every demographic edit emits an `AuditEvent` with before/after, so a name corrected after a prescription was printed is explainable rather than silent (C-17). `RowVersion` makes a two-tab concurrent edit fail loudly with 409 instead of last-write-wins.
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/AppointmentServiceTests.cs` — `ClinicDate` derived in clinic timezone for a 23:45 UTC booking (**EC-48**); second same-day booking without acknowledgement throws (**EC-31**); a booking six months ahead is accepted (EC-40).
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/AppointmentsControllerTests.cs` — `GET /api/appointments?date=` returns exactly that clinic day's rows across a DST boundary.
-- Frontend unit: `appointment-list.component.spec.ts` (empty state offers "Start walk-in consultation" — **EC-4**), `appointment-form.component.spec.ts`, `appointment.service.spec.ts`.
-- E2E: `frontend/e2e/appointment-booking.spec.ts` — golden path book-and-see-in-today's-list; **EC-31** second same-day booking warning.
+- Backend unit: `PMS.Application.Tests/Services/PatientLifecycleTests.cs` — deactivate requires a reason; edits emit audit events; re-normalisation on rename.
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/PatientLifecycleEndpointTests.cs` — stale `rowVersion` returns 409; deactivated patient's visits still return 200 from history.
+- Frontend unit: `features/patients/DeactivatePatientDialog.test.tsx`.
+- E2E: `PMS.E2E/patient-lifecycle.spec.ts` — **E-33**: deactivate a patient with visits, confirm the history is still reachable and no delete control exists anywhere in the UI.
 
 **7. Acceptance criteria.**
-- [ ] An appointment booked for today appears in `/today`'s list immediately after save.
-- [ ] Booking a second appointment for the same patient on the same day returns 409 first and succeeds only after explicit acknowledgement (EC-31).
-- [ ] The daily list for a given date is identical regardless of the browser's timezone (EC-48).
-- [ ] With no appointments today, the list shows an empty state whose action starts a walk-in consultation (EC-4).
-- [ ] Every appointment row shows the patient's age and phone tail alongside the name (EC-29).
-- [ ] An appointment can be booked for a date months in the future without error (EC-40).
+- [ ] No route, controller action or UI control performs a hard delete of a patient (assert by absence in the endpoint list test).
+- [ ] Deactivation without a reason returns 400.
+- [ ] A deactivated patient's visits remain retrievable via history (E-33).
+- [ ] Editing name or DOB writes an `AuditEvent` of type `PatientDemographicsEdited` containing old and new values (§5.7).
+- [ ] A stale `rowVersion` returns 409 and the UI shows a reload prompt, not a silent overwrite.
 
-**8. Effort & dependencies.** **L** (no converged option for OQ-9). Depends on F-7, F-8. Depended on by F-12, F-16.
+**8. Effort & dependencies.** **L (M after Q-6).** Depends on F-5 and F-17 (audit writer). Blocks nothing downstream.
 
 ---
 
-### F-12 — Appointment state machine + Overdue display
+### F-9 — Appointments: scheduling, daily list, status machine, walk-in start
 
-**1. Readiness — Ready.** Brainstorm §7.2 converged on the full transition table including the two blocked transitions and the no-auto-transition rule.
+**1. Readiness.** **Needs decision.**
+> **Assumption (Q-5):** **walk-ins are supported per option D / REC-6** — the doctor clicks "Start consultation" from a patient profile and the system auto-creates an `Appointment` with `Source = WalkIn`, `ScheduledForUtc = now`, `Status = Scheduled`, then a draft `Visit` against it. Every visit therefore has an appointment parent; no orphan path exists.
+> **Assumption (Q-14):** legal transitions are `Scheduled → Completed | Cancelled | NoShow`; **`NoShow → Completed` is allowed** (E-35, normal clinic life); `Cancelled → Completed` is allowed **with a confirm** and the prior status stays visible (E-36); **`Completed → Scheduled` is forbidden** (E-34) — mistakes are handled by amendment, not reversal. Yesterday's `Scheduled` rows are **never auto-marked** — they render as "Past — needs status" with an end-of-day prompt (E-37).
+> **Assumption (this plan's own finding — C-24 has no `Q-` for the time model):** appointments are **date + time with a configurable default duration of 15 minutes, free times, no fixed slot grid**; a second same-day appointment for one patient is allowed with a warning (E-29); back- and forward-dating are allowed with a warning beyond ±90 days (E-38). This should be added to the §12 agenda.
 
-**2. Data model.** No new entity — `Status` and `StatusChangedOn` already exist. `IsOverdue` is **computed at read time** (`Status == Scheduled && ScheduledFor < now`) and never persisted, so nothing silently rewrites a past day (EC-36). Migration: **`AddAppointmentStatusIndex`** (index on `(ClinicDate, Status)` for the daily list).
+**2. Data model.** `Appointment` (§4). Migration: **`AddAppointment`**. Instants stored as `DateTimeOffset` UTC and rendered clinic-local (E-45). Transition legality lives in `AppointmentService`, expressed as an explicit transition table — not scattered `if` statements.
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| POST | `/api/appointments/{id}/status` | `ChangeAppointmentStatusRequest { NewStatus, Note? }` | `AppointmentDto` | 200, 400, 404, **409 (illegal transition)**, 401 | Cookie |
+| POST | `/api/appointments` | `CreateAppointmentRequest` | `AppointmentResponse` | 201, 400, 409 (same-day warn requires `confirm=true`) | cookie |
+| GET | `/api/appointments?date=YYYY-MM-DD` | — | `AppointmentListResponse` | 200 | cookie |
+| GET | `/api/appointments/pending-status` | — | `AppointmentResponse[]` | 200 | cookie |
+| PUT | `/api/appointments/{id}` | `RescheduleRequest` | `AppointmentResponse` | 200, 400, 409 | cookie |
+| POST | `/api/appointments/{id}/status` | `ChangeStatusRequest{status,confirm,note}` | `AppointmentResponse` | 200, 400, 409 (illegal transition) | cookie |
+| POST | `/api/appointments/walk-in` | `StartWalkInRequest{patientId}` | `VisitResponse` | 201, 400, 409 | cookie |
 
-Transition table enforced in `AppointmentStatusPolicy` (`PMS.Domain`), exactly as §7.2 converged:
+**4. Frontend design.** `features/appointments/DailyAppointmentList.tsx` (route `/`, default today, sorted by time then creation — C-25), `AppointmentForm.tsx` (route `/appointments/new`), `AppointmentStatusMenu.tsx` (renders only legal next states), `PendingStatusBanner.tsx` (E-37). `appointmentsApi.ts`: `listByDate(date)`, `createAppointment(req)`, `changeStatus(id, req)`, `reschedule(id, req)`, `startWalkIn(patientId)`. Hooks `useAppointments(date)`, `useChangeAppointmentStatus()`, `useStartWalkIn()`. Empty day renders `EmptyState` offering **"Start walk-in consultation"** (E-3).
 
-| From → To | Allowed? | Rule |
-|---|---|---|
-| Scheduled → Completed | Yes | Normally set automatically by F-16 finalize, not by hand |
-| Scheduled → Cancelled | Yes | — |
-| Scheduled → No-show | Yes | Manual only; never automatic (EC-36) |
-| No-show → Completed | **Yes** | Late arrival; audited (EC-35) |
-| Completed → anything | **No** | A finalized visit sits behind it; changing it would orphan that visit's justification |
-| Cancelled → Scheduled | **No** | Book a new appointment instead |
-| Scheduled past its date | **No auto-transition** | Rendered as `Overdue`; the doctor resolves it (EC-36) |
-
-**4. Frontend design.**
-- `features/appointments/appointment-status.component.ts` — inline status control in the list row; **only legal transitions are rendered** (illegal ones are absent, not disabled-with-a-tooltip).
-- `appointment.service.ts` gains `changeStatus(id: string, req: ChangeAppointmentStatusRequest)`.
-- Overdue rows render with a distinct badge and sort to the top of the daily list.
-
-**5. Data integrity check.** Closes the **Orphan** and **Mutable history** exposures in C-15/RISK-17: `Completed → anything` is blocked so a status can never detach from the visit that justifies it, and no background job ever rewrites a past day's status. `No-show → Completed` is allowed precisely to stop the doctor creating a **duplicate** appointment to work around a block (EC-35).
+**5. Data integrity check.** Orphan + mutable-history modes (RSK-6). Auto-created walk-in appointments guarantee every `Visit` has a parent (E-3, option D). The transition table makes `Completed → Scheduled` unreachable, so a finalized consultation can never be silently detached (E-34). Every status change writes an `AuditEvent` (F-17), so `NoShow → Completed` leaves a trail (E-35). Midnight rollover writes nothing (E-37).
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/AppointmentStatusPolicyTests.cs` — one assertion per cell of the table above, including **EC-35** (No-show → Completed allowed) and Completed → Scheduled rejected.
-- Backend integration: `AppointmentsControllerTests.StatusTests` — illegal transition returns 409 and the stored status is unchanged; a legal one writes an `AuditEvent`.
-- Frontend unit: `appointment-status.component.spec.ts` — a Completed row exposes no status actions; a Scheduled row past its date renders the Overdue badge (**EC-36**).
-- E2E: `frontend/e2e/appointment-status.spec.ts` — **EC-35** mark no-show, patient arrives late, move to Completed; **EC-36** yesterday's Scheduled appointment shows as Overdue rather than auto-marked No-show.
+- Backend unit: `PMS.Application.Tests/Services/AppointmentServiceTests.cs` — full transition matrix including E-34 rejection, E-35 and E-36 acceptance; same-day second appointment requires confirm (E-29); ±90-day warning (E-38).
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/AppointmentsEndpointTests.cs` — walk-in creates appointment + draft visit in one transaction; day query boundaries are inclusive of local midnight.
+- Frontend unit: `features/appointments/AppointmentStatusMenu.test.tsx` — a `Completed` row offers no path back to `Scheduled`.
+- E2E: `PMS.E2E/appointments.spec.ts` — golden path book → complete; **E-35**: a `NoShow` row is moved to `Completed` and the audit entry appears.
 
 **7. Acceptance criteria.**
-- [ ] Each allowed transition in the table succeeds; each blocked one returns 409 and leaves the stored status unchanged.
-- [ ] A Scheduled appointment whose date has passed displays as "Overdue" and its stored `Status` is still `Scheduled` when queried in SSMS (EC-36).
-- [ ] No background job, timer or startup task modifies an appointment status anywhere in the codebase.
-- [ ] `No-show → Completed` succeeds and writes an audit entry (EC-35).
-- [ ] Every status change updates `StatusChangedOn`.
+- [ ] `POST /api/appointments/{id}/status` with `Completed → Scheduled` returns 409 and changes nothing (E-34).
+- [ ] `NoShow → Completed` succeeds and writes an audit event (E-35).
+- [ ] `Cancelled → Completed` requires `confirm=true`; the previous status remains visible on the row (E-36).
+- [ ] At 00:01 the previous day's `Scheduled` rows still read `Scheduled` and appear under "Past — needs status" (E-37).
+- [ ] "Start walk-in consultation" from a patient profile creates exactly one appointment (`Source=WalkIn`) and exactly one draft visit, atomically.
+- [ ] A day with no appointments renders an empty state offering the walk-in action (E-3).
 
-**8. Effort & dependencies.** **M.** Depends on F-11, F-5. Depended on by F-16 (which drives Scheduled → Completed automatically).
+**8. Effort & dependencies.** **L (M after Q-5, Q-14).** Depends on F-5, F-7. **Blocks F-10** and therefore the whole clinical path.
 
 ---
 
-### F-13 — Consultation draft lifecycle + autosave + concurrency guards
+### F-10 — Visit lifecycle: draft, autosave, save-state, resume, single-tab lock, finalize
 
-**This is R-1, the brainstorm's top recommendation, and the longest link on the critical path.**
+**1. Readiness.** **Needs decision.** This is the plan's largest feature and closes RSK-1.
+> **Assumption (Q-3):** the converged model from **REC-1 / option C** is built — **continuously autosaved draft → explicit finalize at print → finalized visits immutable, corrections appended as dated amendments (F-15)**. Autosave debounce **2 s after last keystroke, and at latest every 5 s**, giving the RPO stated in §5.3 (**no more than 5 s of typed content lost to a crash**). Q-3 must confirm immutability before this ships; the alternative ("freely editable") would delete F-15 and change this feature's finalize semantics, so it is not a detail that can be settled later.
+> **Assumption (E-40, no `Q-`):** a second tab opening the same visit gets a **read-only banner**, enforced by `LockToken` + a 15 s heartbeat; a lock older than 60 s is reclaimable. Silent last-write-wins is not acceptable for clinical content.
 
-**1. Readiness — Ready.** D-1 converged on **option D** (autosave draft → explicit finalize → append-only amendments), with E's "unfinished consultations" prompt borrowed as a login-time nudge rather than a blocking ritual. Only one constant is undecided:
-
-> **Assumption (OQ-3 — acceptable loss window):** autosave debounced at **5 seconds** of typing pause, plus an immediate save on field blur, on section change and on `visibilitychange`. The stated recovery objective this implements: **no finalized visit is ever lost; an in-progress consultation loses at most 5 seconds of typing** (B-3). If the owner picks 10 seconds, it is a configuration constant, not a redesign.
-
-**2. Data model.** `Visit` per §4, including `RowVersion` (optimistic concurrency), `EditingSessionId` + `EditingHeartbeatAt` (two-tab guard, EC-45), `IsBackdated` (EC-39) and `ClinicDate` fixed at draft creation (EC-47). Migration: **`AddVisitDraft`**.
+**2. Data model.** `Visit` (§4) plus the lock columns. Migration: **`AddVisitLifecycle`**. Rules enforced in `VisitService`: `VisitDate` is written once at draft creation and never recomputed at finalize (E-44); any write to a `Finalized` visit's clinical columns throws and returns 409; finalize is **idempotent by `Idempotency-Key`** so a double-click cannot produce two prescriptions (E-43).
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| POST | `/api/visits` | `StartVisitRequest { PatientId, AppointmentId?, ClinicDate? }` | `VisitDraftDto` | 201, 400, 404, 401 | Cookie |
-| GET | `/api/visits/{id}` | — | `VisitDetailDto` | 200, 404, 401 | Cookie |
-| PATCH | `/api/visits/{id}/draft` | `SaveVisitDraftRequest { ComplaintsText?, DiagnosisText?, Vitals?, Medications[]?, RowVersion, EditingSessionId }` | `VisitDraftDto { …, RowVersion, SavedAt }` | 200, 400, 404, **409 (stale `RowVersion`)**, **423 (another tab holds the edit lock)**, 401 | Cookie |
-| POST | `/api/visits/{id}/claim-edit` | `ClaimEditRequest { EditingSessionId }` | `EditClaimDto { Granted, HeldSince }` | 200, 409, 401 | Cookie |
-| POST | `/api/visits/{id}/reassign-patient` | `ReassignPatientRequest { NewPatientId, Reason }` | `VisitDetailDto` | 200, 400, **409 (visit finalized)**, 401 | Cookie |
-| DELETE | `/api/visits/{id}/draft` | `DiscardDraftRequest { Reason }` | — | 204, 404, 409 (finalized), 401 | Cookie |
-| GET | `/api/visits/unfinished` | — | `UnfinishedVisitDto[]` | 200, 401 | Cookie |
+| POST | `/api/visits` | `StartVisitRequest{patientId,appointmentId?}` | `VisitResponse` | 201, 400, 409 (open draft exists) | cookie |
+| GET | `/api/visits/{id}` | — | `VisitDetailResponse` | 200, 404 | cookie |
+| PATCH | `/api/visits/{id}/draft` | `UpdateVisitDraftRequest` (partial: complaint, diagnosis, vitals, medications) | `DraftSaveResponse{savedUtc,rowVersion}` | 200, 409 (not draft / lock held), 412 | cookie |
+| POST | `/api/visits/{id}/lock/heartbeat` | — | `LockResponse{isOwner,heldSinceUtc}` | 200, 409 | cookie |
+| POST | `/api/visits/{id}/finalize` | `FinalizeVisitRequest` + `Idempotency-Key` header | `FinalizedVisitResponse{prescriptionId,prescriptionNumber}` | 200, 400 (vitals gate, F-11), 409 (already finalized) | cookie |
+| GET | `/api/visits/open-drafts` | — | `VisitSummaryResponse[]` | 200 | cookie |
+| POST | `/api/visits/{id}/discard-draft` | `DiscardDraftRequest{reason}` | — | 204, 409 | cookie |
 
-`PATCH .../draft` is the single autosave endpoint and writes `Visit` + `Vitals` + `MedicationLine` rows **in one transaction** (EC-58). `POST /api/visits` is rejected while `ClinicProfile.IsSetupComplete` is false (F-6).
+**4. Frontend design.** `features/visits/ConsultationPage.tsx` (route `/visits/:id`) — one scrollable page holding `VitalsSection.tsx`, `ComplaintSection.tsx`, `DiagnosisSection.tsx`, `MedicationSection.tsx` (option C, single page, not a wizard). `features/visits/visitsApi.ts`: `startVisit(req)`, `getVisit(id)`, `patchDraft(id, patch)`, `heartbeat(id)`, `finalizeVisit(id, req, idempotencyKey)`, `listOpenDrafts()`, `discardDraft(id, req)`. Hooks: `useVisitDraft(id)`, `useAutosave(visitId, values)` (debounced mutation, exposes `status: 'saved' | 'saving' | 'error'` and `savedAt`), `useVisitLock(id)`. `shared/components/SaveStateBadge.tsx` renders **"Saved 10:42" / "Saving…" / "Not saved — retrying"** and never shows saved for an unconfirmed write (E-47, REC-17). `shared/hooks/useBeforeUnloadGuard.ts` warns on tab close with unsaved edits (E-42). `DraftBanner.tsx` marks a draft everywhere it appears (E-31). A "Resume draft" prompt appears on the dashboard from `listOpenDrafts()` (E-49). `FinalizeDialog.tsx` shows the medication list **in large type for visual check before commit** (E-17 — a legibility aid, not clinical advice).
 
-**4. Frontend design.**
-- `features/consultation/consultation.component.ts` — route `/visits/:id`. Creates nothing itself; `features/consultation/start-consultation.component.ts` (route `/patients/:id/consult`) calls `POST /api/visits` and navigates. The draft therefore exists on the server **before the first keystroke**.
-- `features/consultation/consultation-autosave.service.ts` — `register(form: FormGroup, visitId: string): void`, `saveNow(): Promise<void>`, `readonly state: Signal<'idle'|'saving'|'saved'|'error'>`. Debounce 5 s; saves on blur, section change and `visibilitychange`.
-- `shared/save-indicator/save-indicator.component.ts` — binds to that signal. **Shows "Not saved" on failure and never shows success optimistically** (EC-51).
-- `core/unsaved-changes.guard.ts` + a `beforeunload` handler active while dirty (EC-42).
-- `features/consultation/edit-claim.service.ts` — claims the edit lock on load, heartbeats every 15 s; a second tab receives 409 and the component renders **read-only with an explicit message** (EC-45).
-- The patient name, age and phone tail are **pinned in a sticky header for the whole consultation** (EC-32), with a "Wrong patient?" action that calls `reassign-patient` while the visit is a draft.
-- `features/home/unfinished-consultations.component.ts` — panel on `/today` listing drafts, shown at login as the D-1/E nudge (**EC-33**).
-- Discard requires a confirmation naming the patient and is audited (**EC-41**).
-
-**5. Data integrity check.** This feature is the plan's principal **Silent loss** mitigation (RISK-1, RISK-14). Draft row created on open, autosaved within a bounded 5-second window, visible in history from the moment it exists so an abandoned draft is never a record nobody knows about (EC-33). **Mutable history** is handled downstream by F-16/F-18 (finalized visits become immutable). Two-tab last-write-wins is closed by the edit claim (EC-45); network failure is surfaced, never swallowed (EC-51); the visit + vitals + medication write is one transaction (EC-58); `ClinicDate` is fixed at creation so a midnight crossing cannot move the visit out of "today" (EC-47).
+**5. Data integrity check.** All four modes converge here. **Silent loss:** 5 s autosave RPO + honest save-state + beforeunload guard + resume-on-relaunch (E-42, E-47, E-49). **Mutable history:** finalized visits reject clinical edits at the service layer (E-32). **Orphan:** every visit is created with a patient and an appointment parent (F-9). **Duplicate:** finalize is idempotency-keyed and the submit button disables on click (E-43). Abandoned drafts are never silently discarded and never counted as completed visits (E-31).
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/VisitDraftServiceTests.cs` — draft creation fixes `ClinicDate` from the clock and never recomputes it (**EC-47**); a stale `RowVersion` throws (**EC-45**); reassign-patient allowed while draft, rejected once finalized (**EC-32**); a backdated `ClinicDate` sets `IsBackdated` while `CreatedOn` stays real (**EC-39**); discard writes an audit entry (**EC-41**).
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/VisitsDraftTests.cs` — two concurrent PATCHes with the same `RowVersion`: one 200, one 409, no lost update; a PATCH that fails mid-transaction leaves **no** partial vitals row (**EC-58**); a second `claim-edit` returns 409 (**EC-45**).
-- Frontend unit: `consultation.component.spec.ts` (sticky patient header always rendered — EC-32), `consultation-autosave.service.spec.ts` (debounce timing, save-on-blur, error state never shows "Saved" — **EC-51**), `edit-claim.service.spec.ts`, `unsaved-changes.guard.spec.ts` (**EC-42**).
-- E2E: `frontend/e2e/consultation-draft.spec.ts` — golden path open → type → observe "Saved"; **EC-42** reload mid-consultation and confirm the text returns; **EC-33** close the tab mid-consultation, log in again, find it under "Unfinished consultations"; **EC-45** open a second tab and confirm it is read-only; **EC-51** simulate an offline PATCH and confirm the "Not saved" indicator appears.
+- Backend unit: `PMS.Application.Tests/Services/VisitServiceTests.cs` — finalize rejects a second call with the same idempotency key; patch on a finalized visit throws; `VisitDate` unchanged when finalize crosses midnight (E-44); lock reclaim after expiry (E-40).
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/VisitsEndpointTests.cs` — draft → patch → finalize round-trip creates exactly one `PrescriptionIssue`; concurrent double finalize yields one.
+- Frontend unit: `features/visits/useAutosave.test.ts` (debounce timing, error state never renders "Saved"), `features/visits/ConsultationPage.test.tsx`, `shared/components/SaveStateBadge.test.tsx`.
+- E2E: `PMS.E2E/consultation-lifecycle.spec.ts` — golden path draft → finalize; **E-42** (severest): type into the consultation, kill the tab without finalizing, reopen, and confirm every character within the last 5 s window is present; **E-40**: open the same visit in a second tab and confirm it is read-only with a banner.
 
 **7. Acceptance criteria.**
-- [ ] Opening a consultation creates a persisted `Visit` row with `LifecycleState = Draft` before any field is typed into (query it in SSMS to confirm).
-- [ ] Typing, pausing 5 seconds and killing the browser process loses no more than the last 5 seconds of typing (B-3, EC-53).
-- [ ] Reloading the page mid-consultation restores every entered field (EC-42, EC-46).
-- [ ] A draft appears in "Unfinished consultations" on `/today` and in that patient's history, clearly marked as a draft (EC-33).
-- [ ] A second browser tab on the same visit is read-only and says so; the first tab keeps saving normally (EC-45).
-- [ ] With the network disconnected, the indicator reads "Not saved" and never "Saved" (EC-51).
-- [ ] A consultation opened at 23:59 and finalized at 00:03 keeps the opening day as its `ClinicDate` and stores the true `FinalizedAt` instant (EC-47).
-- [ ] Reassigning a draft to a different patient succeeds, writes an audit entry, and the same call on a finalized visit returns 409 (EC-32).
-- [ ] Discarding a draft requires a confirmation naming the patient and writes an audit entry (EC-41).
-- [ ] `POST /api/visits` returns 409 while clinic setup is incomplete (EC-1).
+- [ ] Typing in any consultation field triggers a save within 5 s; the badge shows the confirmed save time only after a 200 response (E-47).
+- [ ] Killing the browser tab and reopening the visit restores all content typed more than 5 s before the kill (E-42, §5.3 RPO).
+- [ ] An abandoned draft appears in the dashboard's resume list and in patient history **labelled "Draft"**, and is not counted as a completed visit (E-31).
+- [ ] A finalized visit returns 409 on `PATCH /draft`; the UI offers "Add amendment" instead (E-32).
+- [ ] Double-clicking Finalize produces exactly one `PrescriptionIssue` row (E-43).
+- [ ] A draft started at 23:58 and finalized at 00:03 records `VisitDate` = the start date (E-44).
+- [ ] A second tab on the same visit is read-only and says so (E-40).
 
-**8. Effort & dependencies.** **L** (genuine build cost: autosave, optimistic concurrency, edit-claim protocol, unload guard, transactional multi-entity write). Depends on F-7, F-6, F-5. **Depended on by F-14, F-15, F-16, F-17, F-18, F-19** — the widest blocking reach in the plan and the reason it leads the critical path.
+**8. Effort & dependencies.** **L (genuinely over a week, and gated on Q-3).** Depends on F-9. **Blocks F-11, F-12, F-13, F-14, F-15, F-16, F-19.**
 
 ---
 
-### F-14 — Vitals capture + not-recorded reasons + doctor-configured ranges
+### F-11 — Vitals capture (mandatory-or-reason)
 
-**1. Readiness — Needs decision (OQ-1).** D-7 converged on **option C** (value **or** an explicit "not recorded" reason from a short doctor-defined list). This is a ratification, not an open design space.
+**1. Readiness.** **Needs decision.**
+> **Assumption (Q-2):** **REC-3 / option F is adopted — vitals are required to finalize, but each may be marked "not recorded" with a reason from the F-4 list.** This is formally a BRD change (§5.2) and needs the owner's explicit acceptance. Absent is stored as `null` + reason; **no sentinel value is ever written** (E-18).
+> **Assumption (Q-10):** temperature unit from `ClinicProfile`; BP as two integers in mmHg; plausibility warnings fire only where the doctor has entered a threshold in `VitalRangeSetting`, and are **soft confirms** (E-12, E-24). This plan authors no clinical range.
 
-> **Assumption (OQ-1 — what happens when a vital genuinely cannot be taken):** building D-7 C. Each of temperature, BP and pulse requires **either** a value **or** a selected reason from `NotRecordedReason`; the reason list is doctor-editable and seeded empty except for a single "Not recorded" fallback so the app is usable on day one. The printed prescription and history render "BP: not recorded — <reason>", never a blank. Cost on the normal path: zero keystrokes.
->
-> **Clinical boundary (non-negotiable, per brainstorm D-7 and EC-13):** the application **never asserts a plausible range of its own**. `VitalRangeSetting` is blank until the doctor configures it, and a configured range produces a **soft warning only** — never a hard block, never a clinical judgement in code.
+**2. Data model.** `VisitVitals` (§4). Migration: **`AddVisitVitals`**. Service rule (load-bearing): for each of temperature, BP and pulse, **exactly one of (value, not-recorded reason) must be present** before finalize succeeds; a value plus a reason, or neither, returns 400.
 
-**2. Data model.** `Vitals` (PK = `VisitId`), `NotRecordedReason`, `VitalRangeSetting` per §4. BP is **two integer fields**, temperature is **value + unit selector** — never free text (EC-66). Migration: **`AddVitalsAndVitalRanges`**.
+**3. API design.** Vitals are saved through `PATCH /api/visits/{id}/draft` (F-10) and validated at `POST /api/visits/{id}/finalize`. One dedicated read:
 
-**3. API design.** Vitals are saved through `PATCH /api/visits/{id}/draft` (F-13) — no separate write endpoint, so vitals can never be saved outside the visit transaction. Settings endpoints:
-
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| GET | `/api/settings/vital-reasons` | — | `NotRecordedReasonDto[]` | 200, 401 | Cookie |
-| POST | `/api/settings/vital-reasons` | `CreateReasonRequest { VitalKind, Label }` | `NotRecordedReasonDto` | 201, 400, 401 | Cookie |
-| DELETE | `/api/settings/vital-reasons/{id}` | — | 204 (deactivates; never hard-deletes a reason already referenced) | 204, 404, 401 | Cookie |
-| GET | `/api/settings/vital-ranges` | — | `VitalRangeSettingDto[]` | 200, 401 | Cookie |
-| PUT | `/api/settings/vital-ranges` | `UpdateVitalRangesRequest` | `VitalRangeSettingDto[]` | 200, 400, 401 | Cookie |
+| GET | `/api/visits/{id}/vitals` | — | `VitalsResponse` | 200, 404 | cookie |
 
-`VisitValidator` (FluentValidation) enforces at **finalize** (F-16), not on every autosave: each vital has a value or a reason.
+**4. Frontend design.** `features/visits/VitalsSection.tsx` — three inputs, each with a "Not recorded" toggle revealing a reason `<select>` fed by `useSettingOptions('VitalsNotRecordedReason')`. `features/visits/useVitalsWarnings.ts(values, ranges)` returns soft warnings from `useVitalRanges()` (F-4). Temperature input displays the clinic unit as a suffix. Finalize is blocked by `FinalizeDialog.tsx` with a field-level message naming which vital is unaddressed.
 
-**4. Frontend design.**
-- `features/consultation/vitals-section.component.ts` — three rows; each has numeric input(s) and a "Not recorded" toggle that reveals a reason select. Temperature has a C/F unit selector; BP has two numeric inputs.
-- `features/settings/vital-settings.component.ts` — route `/settings/vitals`; manages reasons and ranges. `SettingsService.vitalReasons()`, `.addReason(req)`, `.deactivateReason(id)`, `.vitalRanges()`, `.updateRanges(req)`.
-- A configured range breach renders an inline amber warning next to the field with the doctor's own threshold quoted; the value still saves (**EC-13**).
-- Typing "120/80" into the systolic box is parsed into both fields on blur rather than rejected — a convenience that keeps the structure (EC-66).
-
-**5. Data integrity check.** Closes the fabrication vector behind RISK-3 / EC-19: with no exception path the doctor either abandons the record (Silent loss) or invents a number (invisible corruption). A recorded "not recorded — cuff unavailable" is a durable fact; a blank is an ambiguity someone misreads years later. Structured BP and unit-tagged temperature keep history comparable across visits (EC-66) — free-text vitals would make **Mutable history** of the whole vitals series.
+**5. Data integrity check.** Silent-loss / fabricated-data mode (RSK-3, E-18). Storing absence as `null` + reason means permanent clinical history never contains an invented `0/0` or `120/80` typed from memory. The escape hatch removes the incentive that a hard block creates.
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/VitalsValidationTests.cs` — value-or-reason enforced per vital at finalize (**EC-19**); a value plus a reason is rejected as contradictory; range warnings are returned as warnings, never as validation errors (**EC-13**); with no `VitalRangeSetting` configured, temperature 450 saves with no warning at all.
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/VitalsTests.cs` — finalize blocked when BP has neither value nor reason; deactivating a referenced reason keeps historic visits rendering it.
-- Frontend unit: `vitals-section.component.spec.ts` (toggle reveals the reason select; "120/80" paste splits into two fields — **EC-66**), `vital-settings.component.spec.ts`.
-- E2E: `frontend/e2e/vitals-exception.spec.ts` — **EC-19** golden path: BP cannot be taken, select a reason, finalize succeeds, and the printed prescription reads "BP: not recorded — cuff unavailable".
+- Backend unit: `PMS.Application.Tests/Services/VitalsServiceTests.cs` — value+reason rejected, neither rejected, either alone accepted; warning emitted only when a threshold exists (E-12).
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/VitalsEndpointTests.cs` — finalize returns 400 listing the unaddressed vital; succeeds once a reason is supplied.
+- Frontend unit: `features/visits/VitalsSection.test.tsx` — toggling "Not recorded" clears the numeric value and requires a reason; `useVitalsWarnings.test.ts`.
+- E2E: `PMS.E2E/vitals.spec.ts` — **E-18**: finalize a visit where BP cannot be taken, using "Equipment unavailable", and confirm the stored BP is null and the printed sheet shows "not recorded".
 
 **7. Acceptance criteria.**
-- [ ] Finalize is rejected when any of temperature, BP or pulse has neither a value nor a reason (EC-19).
-- [ ] Selecting a reason for BP allows finalize and prints "BP: not recorded — <reason>", not a blank (EC-19).
-- [ ] BP is stored as two integers and temperature as value + unit; no vitals value is stored as free text (EC-66).
-- [ ] With no ranges configured, a temperature of 450 saves with no warning (the system asserts no clinical range of its own — EC-13).
-- [ ] With a doctor-configured range, an out-of-range value shows an amber warning and still saves — there is no code path that blocks it.
-- [ ] The reason list is editable at `/settings/vitals` and changes appear in the consultation form without a redeploy.
+- [ ] Finalize fails with 400 when any of temperature, BP or pulse has neither a value nor a reason.
+- [ ] Marking BP "not recorded — patient declined" allows finalize; `BpSystolic` and `BpDiastolic` are `NULL` in SQL (verify in SSMS), never `0` (E-18).
+- [ ] The printed prescription shows "Not recorded (patient declined)" for that vital — never a blank that reads as an omission.
+- [ ] With no thresholds configured, a temperature of 45 saves without any warning; with a doctor-set upper bound of 42, the same entry warns and still saves on confirm (E-12).
+- [ ] Every displayed and printed temperature carries its unit (E-24).
 
-**8. Effort & dependencies.** **M (L while OQ-1 open).** Depends on F-13. Depended on by F-16 (finalize validation), F-17 (print rendering).
+**8. Effort & dependencies.** **L (M after Q-2, Q-10).** Depends on F-10, F-4. Blocks F-14.
 
 ---
 
-### F-15 — Complaints, diagnosis, medications + pre-finalize review
+### F-12 — Complaints & diagnosis capture
 
-**1. Readiness — Needs decision (OQ-13).**
+**1. Readiness.** **Needs decision.**
+> **Assumption (Q-8):** **diagnosis is optional** for finalize; when empty, the printed prescription renders an explicit "Diagnosis: not recorded" line so the sheet is never ambiguously blank (E-19). If Q-8 answers "required", the change is one validator plus one acceptance criterion — small, but it is the owner's call, not the developer's.
+> **Assumption (C-29, no `Q-`):** complaint soft cap 2,000 characters with a visible counter, hard cap 10,000, whitespace trimmed, line breaks preserved (E-14). Same caps for diagnosis at 2,000 hard.
+> **Concretization noted (not silent):** brainstorm §6.2 sketches `Complaint` and `Diagnosis` as child entities; both are 1:1 with a visit and never repeat, so this plan stores them as `Visit.ComplaintText` and `Visit.DiagnosisText`. No behaviour in the brainstorm depends on them being separate rows.
 
-> **Assumption (OQ-13 — which medication fields are required, and is diagnosis mandatory before printing?):** building the §8.3/§8.1 proposed handling — **`DrugName` required; dosage, frequency, duration and instructions optional** (EC-23); **diagnosis not mandatory** but a **one-time warning at finalize** when it is blank, overridable (EC-8). Hard-blocking on diagnosis is clinical rule-setting and is the doctor's call, not the plan's. **Zero medications is explicitly allowed** — an advice-only visit prints "No medication prescribed" (EC-3). No maximum medication count (EC-16).
+**2. Data model.** `Visit.ComplaintText:string?`, `Visit.DiagnosisText:string?` (already in the F-10 migration). No new migration.
 
-**2. Data model.** `Visit.ComplaintsText` and `Visit.DiagnosisText` (`nvarchar(4000)`, full Unicode, formatting stripped on paste — C-20/EC-65), `MedicationLine` per §4 with unique `(VisitId, Sequence)`. Migration: **`AddMedicationLines`**.
+**3. API design.** Saved via `PATCH /api/visits/{id}/draft` (F-10). No dedicated endpoints.
 
-**3. API design.** Written through `PATCH /api/visits/{id}/draft` (F-13) — the whole medication list is sent as an ordered array and reconciled server-side by `Sequence`, so reordering and deletion never orphan a line. One additional read endpoint:
+**4. Frontend design.** `features/visits/ComplaintSection.tsx` and `features/visits/DiagnosisSection.tsx` — auto-growing `<textarea>` with character counter, wired to `useAutosave` from F-10. Paste beyond the hard cap truncates with a visible notice rather than silently dropping characters (E-14).
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
-|---|---|---|---|---|---|
-| GET | `/api/visits/{id}/review` | — | `PreFinalizeReviewDto { Patient, Vitals, ComplaintsText, DiagnosisText, Medications[], Warnings[] }` | 200, 404, 401 | Cookie |
-
-`Warnings[]` carries the blank-diagnosis warning (EC-8), any doctor-configured vitals-range breach (EC-13) and blank medication sub-fields (EC-23) — **all advisory, none blocking**.
-
-**4. Frontend design.**
-- `features/consultation/complaints-section.component.ts` — textarea with a visible character counter against the 4,000 limit (EC-10); paste handler strips formatting and keeps text (EC-65).
-- `features/consultation/diagnosis-section.component.ts` — same pattern.
-- `features/consultation/medications-section.component.ts` — repeating rows, keyboard-first (`Enter` adds a row, `Alt+Up/Down` reorders), drug name required, other four free.
-- `features/consultation/pre-finalize-review.component.ts` — **R-19**: a read-only screen rendering the medication list **exactly as it will print**, shown between "Finalize" and the print action. Review, not validation (EC-14).
-- `consultation.service.ts` gains `getReview(visitId: string): Observable<PreFinalizeReviewDto>`.
-
-**5. Data integrity check.** **Silent loss** (EC-10): long complaint text clipped at print or export is invisible clinical loss — prevented by an enforced stored max with a visible counter plus wrapping (never clipping) in the print layout (F-17). **EC-14** (a 5-vs-50 dosage typo) is explicitly *not* addressed by validation — no clinical guard is appropriate here; the pre-finalize review is the mitigation, and it is a review, not a rule. Medication reconciliation by `Sequence` prevents orphaned lines when rows are reordered.
+**5. Data integrity check.** Silent-loss risk is inherited from F-10's autosave — these are the two highest-volume free-text fields, so they are the ones a lost save actually costs. Unicode/emoji/smart-quote content round-trips unchanged (E-57), and free text is HTML-escaped at PDF render so it cannot garble the printed document (E-58).
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/MedicationLineTests.cs` — reordering rewrites `Sequence` without orphaning (unique constraint holds); a line with only a drug name is valid (**EC-23**); zero medications is valid (**EC-3**); 40 lines are accepted (**EC-16**). `PMS.Application.Tests/Services/VisitReviewTests.cs` — blank diagnosis produces a warning, not an error (**EC-8**).
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/VisitsContentTests.cs` — a 4,000-character complaint round-trips exactly; 4,001 returns 400 (**EC-10**); emoji and mixed-script text survive the round trip (**EC-65**, **EC-62**).
-- Frontend unit: `medications-section.component.spec.ts` (keyboard add/reorder), `complaints-section.component.spec.ts` (counter, paste stripping), `pre-finalize-review.component.spec.ts` (renders blanks visibly — EC-23).
-- E2E: `frontend/e2e/consultation-content.spec.ts` — golden path complaints → diagnosis → two medications → review; **EC-3** advice-only visit with zero medications; **EC-8** finalize with a blank diagnosis after acknowledging the warning.
+- Backend unit: covered in `VisitServiceTests.cs` — cap enforcement, whitespace trim, line-break preservation.
+- Backend integration: within `VisitsEndpointTests.cs` — a 10,001-character complaint returns 400; a multi-line unicode complaint round-trips byte-identical.
+- Frontend unit: `features/visits/ComplaintSection.test.tsx` — counter, paste truncation notice.
+- E2E: covered by `consultation-lifecycle.spec.ts`; **E-58** asserted in `PMS.E2E/prescription.spec.ts` (F-14) where the rendered output is inspected.
 
 **7. Acceptance criteria.**
-- [ ] A medication line saves with only a drug name filled in (EC-23).
-- [ ] A visit with zero medications can be finalized and its prescription prints "No medication prescribed" (EC-3).
-- [ ] Finalizing with a blank diagnosis shows one warning and proceeds when acknowledged; it is never hard-blocked (EC-8).
-- [ ] The complaints field shows a live character counter and rejects input beyond 4,000 characters with a message, rather than silently truncating (EC-10).
-- [ ] Pasting formatted rich text into complaints stores the plain text and drops the formatting (EC-65).
-- [ ] The pre-finalize review shows every medication row exactly as it will print, including empty sub-fields (EC-14, EC-23).
-- [ ] Medications can be added, reordered and removed using the keyboard alone (B-1 keyboard-only path).
-- [ ] 40 medication lines save and render without error (EC-16).
+- [ ] A complaint containing newlines and non-Latin characters saves and re-renders identically (E-57).
+- [ ] Pasting 12,000 characters truncates to 10,000 with a visible notice (E-14).
+- [ ] Finalizing with an empty diagnosis succeeds and prints "Diagnosis: not recorded" (E-19, under the Q-8 assumption).
+- [ ] Text containing `<script>` renders as literal characters in the PDF, not as markup (E-58).
 
-**8. Effort & dependencies.** **M (L while OQ-13 open).** Depends on F-13. Depended on by F-16, F-17.
+**8. Effort & dependencies.** **L (S after Q-8).** Depends on F-10. Blocks F-14.
 
 ---
 
-### F-16 — Finalize + appointment auto-complete + idempotency
+### F-13 — Medications
 
-**1. Readiness — Ready.** D-5 converged on **option C** (optional link; finalizing auto-sets the appointment to Completed), and D-1 D fixes finalize as the commit point.
+**1. Readiness.** **Needs decision.**
+> **Assumption (C-31 / E-22 — brainstorm §12 has no `Q-` for the required subset; this plan's own finding):** **Name + Dosage are required per line; Frequency, Duration and Instructions are optional and print only when present.** All five remain free text — a medicine master list is explicitly parked (§11), so spelling variants are an accepted Phase-1 risk.
+> **Zero medications is explicitly legal** (E-5): the prescription prints "No medication prescribed".
 
-**2. Data model.** `Visit.FinalizedAt`, `Visit.LifecycleState` (already added in `AddVisitDraft`) plus `Visit.FinalizeRequestId: Guid?` for server-side de-duplication (EC-44). Migration: **`AddVisitFinalization`**.
+**2. Data model.** `MedicationLine` (§4). Migration: **`AddMedicationLines`**. `LineNo` preserves the doctor's ordering; lines are replaced wholesale on each draft patch while the visit is a draft, and frozen at finalize.
+
+**3. API design.** Saved via `PATCH /api/visits/{id}/draft` with the full line list. One read for history reuse:
+
+| Method | Route | Request DTO | Response DTO | Status | Auth |
+|---|---|---|---|---|---|
+| GET | `/api/visits/{id}/medications` | — | `MedicationLineResponse[]` | 200, 404 | cookie |
+
+**4. Frontend design.** `features/visits/MedicationSection.tsx` — repeatable rows with add/remove/reorder, `Name` and `Dosage` marked required, Enter adds the next row (keyboard-first, REC-16). `features/visits/useMedicationLines.ts` manages local row state and hands the array to `useAutosave`. `FinalizeDialog.tsx` (F-10) renders these lines in large type as the pre-commit visual check (E-17).
+
+**5. Data integrity check.** Duplicate mode at the *string* level (C-31) is knowingly accepted this phase. The mitigations that do ship: line ordering is explicit, lines freeze at finalize so a printed sheet always matches the record (E-32), and the large-type confirm gives the doctor a legibility check against a mistyped dose (E-17 — **a legibility aid; no dosage rule is encoded anywhere in this system**).
+
+**6. Test strategy.**
+- Backend unit: `PMS.Application.Tests/Services/MedicationServiceTests.cs` — name/dosage required, empty list allowed, `LineNo` reassignment on reorder.
+- Backend integration: within `VisitsEndpointTests.cs` — replacing the line set on a draft leaves no orphan rows; attempting it on a finalized visit returns 409.
+- Frontend unit: `features/visits/MedicationSection.test.tsx` — Enter adds a row, remove keeps ordering contiguous.
+- E2E: `PMS.E2E/prescription.spec.ts` covers **E-5** (advice-only visit) and **E-10** (10+ lines paginating).
+
+**7. Acceptance criteria.**
+- [ ] A line with a name but no dosage blocks finalize with a field-level 400 message.
+- [ ] Finalizing with zero medication lines succeeds and the printed sheet reads "No medication prescribed" (E-5).
+- [ ] Reordering lines then finalizing prints them in the displayed order.
+- [ ] The finalize dialog lists every medication line in a type size large enough to proof-read (E-17).
+- [ ] No dosage threshold, interaction rule or range check exists anywhere in the codebase.
+
+**8. Effort & dependencies.** **L (M after the required-subset call).** Depends on F-10. Blocks F-14.
+
+---
+
+### F-14 — Prescription generation, print, reprint
+
+**1. Readiness.** **Needs decision.**
+> **Assumption (Q-4):** header/footer content comes from `ClinicProfile` (F-3); printing is impossible until `IsSetupComplete` (E-1).
+> **Assumption (Q-8):** an empty diagnosis prints "Diagnosis: not recorded" (E-19).
+> Rendering is **server-side QuestPDF** per the §2 decision (C-47, E-10). Prescription identity: `PrescriptionNumber` = `YYYYMMDD-NNNN` sequential per day, unique, assigned at finalize (C-32).
+
+**2. Data model.** `PrescriptionIssue` (§4). Migration: **`AddPrescriptionIssue`**. Created inside the finalize transaction (F-10) — never separately, so a finalized visit without a prescription record is unreachable. `PrintCount` increments on each render; **the visit is "issued" at finalize regardless of whether the print dialog is completed** (E-52).
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| POST | `/api/visits/{id}/finalize` | `FinalizeVisitRequest { RowVersion, FinalizeRequestId, AcknowledgedWarnings[] }` | `VisitDetailDto` (includes the created `PrescriptionIssue` id from F-17) | 200, 400, 404, 409 (stale/already finalized with a **different** request id), 422 (vitals incomplete), 401 | Cookie |
+| GET | `/api/prescriptions/{visitId}/preview` | — | `PrescriptionPreviewResponse` (JSON, for on-screen check) | 200, 404, 409 (draft) | cookie |
+| GET | `/api/prescriptions/{visitId}/pdf` | — | `application/pdf` stream | 200, 404, 409 (setup incomplete / draft), 500 | cookie |
+| POST | `/api/prescriptions/{visitId}/record-print` | `RecordPrintRequest{isReprint}` | `PrescriptionIssueResponse` | 200, 404 | cookie |
 
-`VisitService.FinalizeAsync` in one transaction: validate vitals (F-14), set `LifecycleState = Finalized` and `FinalizedAt`, create the `PrescriptionIssue` snapshot (F-17), set the linked appointment to `Completed` via `AppointmentStatusPolicy` (F-12), and write two `AuditEvent` rows (`VisitFinalized`, `PrescriptionIssued`). **Idempotent:** a repeat call with the same `FinalizeRequestId` returns 200 with the original result and creates nothing new (EC-44).
+**4. Frontend design.** `features/prescriptions/PrescriptionPreview.tsx` (route `/visits/:id/prescription`) — embeds the PDF in an `<iframe>` and offers Print and Reprint. `features/prescriptions/prescriptionsApi.ts`: `getPreview(visitId)`, `getPdfUrl(visitId)`, `recordPrint(visitId, isReprint)`. Hook `usePrescription(visitId)`. Finalize (F-10) navigates here automatically. PDF failure renders a retry action and an explicit error — **never a silent blank frame** (E-53).
 
-**4. Frontend design.**
-- `features/consultation/finalize-button.component.ts` — generates a `FinalizeRequestId` once per attempt, disables on first click, and calls `ConsultationService.finalize(visitId, req)`. Double-click is neutralised on both sides (EC-44).
-- On success it navigates to `/visits/:id/print` (F-17).
-- The consultation form switches to read-only immediately after a 200; further edits go through F-18 amendments.
-
-**5. Data integrity check.** The commit point of the D-1 lifecycle: after it, the visit is **immutable** and corrections append (F-18) — this is the **Mutable history** closure. Double-submit **Duplicate** (EC-44) is closed on both client and server. The appointment auto-complete closes the **Orphan** exposure in RISK-7: `Completed` now always has a visit behind it, and the doctor never has to remember to set it. Snapshot-before-render (EC-56) means the record survives a rendering failure.
+**5. Data integrity check.** Mutable-history mode. The PDF is rendered from the frozen finalized visit, so a reprint months later is byte-identical to the sheet the patient holds (E-32, E-52). Finalize commits **before** rendering, so a server error after the print click cannot lose the record — print is a retryable downstream step (E-51). Every print and reprint writes an `AuditEvent` (F-17, E-63). Pagination repeats patient name, date and "Page n of m" and **never truncates** (E-10).
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/VisitFinalizeServiceTests.cs` — vitals incomplete → 422 (EC-19); linked appointment moves Scheduled → Completed; a **walk-in** with no appointment finalizes fine (D-5 C, **EC-38**); repeat `FinalizeRequestId` returns the original (**EC-44**); a finalize that throws during snapshot creation rolls back the whole transaction, leaving the visit a draft.
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/VisitFinalizeTests.cs` — two parallel finalize calls create exactly one `PrescriptionIssue` (**EC-44**); a subsequent `PATCH .../draft` on a finalized visit returns 409.
-- Frontend unit: `finalize-button.component.spec.ts` (disabled on first click; single request on double-click).
-- E2E: `frontend/e2e/consultation-finalize.spec.ts` — golden path finalize → print preview; **EC-44** double-click produces one visit and one prescription; **EC-38** cancelled appointment, doctor sees the patient anyway as a walk-in.
+- Backend unit: `PMS.Application.Tests/Services/PrescriptionServiceTests.cs` — number generation and uniqueness, 409 on a draft visit, 409 when setup incomplete, print-count increment.
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/PrescriptionsEndpointTests.cs` — PDF endpoint returns a non-empty `application/pdf`; a 12-medication visit produces > 1 page and the last page carries the footer.
+- Frontend unit: `features/prescriptions/PrescriptionPreview.test.tsx` — render failure shows retry, not a blank frame (E-53).
+- E2E: `PMS.E2E/prescription.spec.ts` — golden path finalize → preview → print; **E-10**: 12 medications paginate with repeated header and "Page 1 of 2"; **E-52**: cancelling the print dialog leaves the visit finalized and reprint available.
 
 **7. Acceptance criteria.**
-- [ ] Finalize sets `LifecycleState = Finalized` and `FinalizedAt`, and every subsequent draft PATCH on that visit returns 409.
-- [ ] A visit linked to a Scheduled appointment sets that appointment to Completed in the same transaction; the doctor performs no extra click (D-5 C).
-- [ ] A walk-in visit with no appointment finalizes with no appointment side effect (EC-38).
-- [ ] Double-clicking Finalize produces exactly one `Visit`, one `PrescriptionIssue` and one audit entry (EC-44).
-- [ ] Finalize with a vital that has neither value nor reason returns 422 and the visit stays a draft (EC-19).
-- [ ] A failure during snapshot creation leaves the visit as a draft with no partial finalize state (EC-58).
-- [ ] Finalize writes `VisitFinalized` and `PrescriptionIssued` audit rows.
+- [ ] A finalized visit produces a PDF containing clinic name, doctor name, registration number, patient name + age, all three vitals with units (or "not recorded" + reason), diagnosis, medication lines, and the footer/signature area.
+- [ ] A draft visit returns 409 from both prescription endpoints.
+- [ ] With `IsSetupComplete = false`, the PDF endpoint returns 409 (E-1).
+- [ ] 12 medication lines paginate; every page repeats patient name, date and "Page n of m"; nothing is truncated (E-10).
+- [ ] Cancelling the browser print dialog leaves the visit finalized; the reprint action works and increments `PrintCount` (E-52).
+- [ ] A reprint produced a week later is byte-identical to the original PDF (E-32).
+- [ ] The same PDF is produced in Chrome, Edge and Safari (server-rendered — asserted by hash comparison in the E2E run) (C-47).
 
-**8. Effort & dependencies.** **M.** Depends on F-13, F-14, F-15, F-12. Depended on by F-17, F-18, F-19.
+**8. Effort & dependencies.** **L (M after Q-4, Q-8).** Depends on F-3, F-11, F-12, F-13. Blocks F-15, F-18.
 
 ---
 
-### F-17 — Prescription snapshot, print layout, reprint
+### F-15 — Visit amendments (append-only)
 
-**1. Readiness — Ready.** D-4 converged on **option C with reprints flagged (light D)**: print stores an immutable snapshot of exactly what was printed; reprints are recorded and flagged.
+**1. Readiness.** **Needs decision.**
+> **Assumption (Q-3):** finalized visits are immutable and corrections are appended as dated amendments (REC-1). If Q-3 answers "freely editable", **this feature does not exist** and F-10's finalize semantics change — which is why Q-3 must be answered before F-10 ships, not before F-15.
 
-**2. Data model.** `PrescriptionIssue` per §4 — `SnapshotJson` holds the fully-resolved document (clinic header fields, patient demographics **as at issue time**, vitals, diagnosis, medication lines, footer), `SnapshotHash` is a SHA-256 of it, `RenderedPdf` optionally caches the bytes. Append-only: no update or delete path exists. Migration: **`AddPrescriptionIssue`**.
+**2. Data model.** `VisitAmendment` (§4). Migration: **`AddVisitAmendment`**. `Sequence` is server-assigned; **no update or delete endpoint or service method exists** — that absence is the feature.
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| GET | `/api/visits/{id}/prescription-issues` | — | `PrescriptionIssueDto[]` | 200, 404, 401 | Cookie |
-| GET | `/api/prescription-issues/{issueId}` | — | `PrescriptionSnapshotDto` | 200, 404, 401 | Cookie |
-| GET | `/api/prescription-issues/{issueId}/pdf` | — | `application/pdf` | 200, 404, 500, 401 | Cookie |
-| POST | `/api/visits/{id}/prescription-issues/reprint` | `ReprintRequest { SourceIssueId }` | `PrescriptionIssueDto` (`IssueKind = Reprint`, **snapshot copied verbatim from the source**) | 201, 404, 409, 401 | Cookie |
+| POST | `/api/visits/{id}/amendments` | `CreateAmendmentRequest{text}` | `AmendmentResponse` | 201, 400, 409 (visit is a draft) | cookie |
+| GET | `/api/visits/{id}/amendments` | — | `AmendmentResponse[]` | 200, 404 | cookie |
 
-The original issue is created inside `FinalizeAsync` (F-16) — **the snapshot is written before any rendering is attempted** (EC-56), so a rendering failure never costs the record. PDF rendering uses **QuestPDF** in `PMS.Infrastructure/Printing/QuestPdfRenderer.cs`; the browser print path renders the same snapshot through a dedicated Angular print view.
+**4. Frontend design.** `features/visits/AmendmentPanel.tsx` — rendered on a finalized `ConsultationPage.tsx` and inside `history/VisitDetail.tsx`; shows the original record read-only above a chronological amendment list with an "Add amendment" form. `visitsApi.ts` gains `addAmendment(visitId, req)` and `listAmendments(visitId)`; hook `useAmendments(visitId)`. Attempting to edit a finalized field surfaces "This visit is finalized — add an amendment instead", not a disabled control with no explanation (E-32, E-39).
 
-**4. Frontend design.**
-- `features/prescription/prescription-print.component.ts` — route `/visits/:id/print`; loads the snapshot (not the live visit) and renders the print layout. Calls `window.print()` on a user action.
-- `features/prescription/prescription-layout.component.ts` + `prescription-print.scss` — implements **R-16**: repeating header on every page, "Page 1 of N", medication rows never split across a page break (`break-inside: avoid`), long complaint/diagnosis text **wraps and never clips** (EC-9, EC-10), long names truncate in the header only (EC-11), and a print font carrying non-Latin scripts (EC-62).
-- `features/prescription/prescription-history.component.ts` — lists all issues for a visit with kind and timestamp; a "Reprint" action creates a flagged `Reprint` issue and re-renders **the original snapshot** (EC-52).
-- `prescription.service.ts` — `listIssues(visitId)`, `getSnapshot(issueId)`, `downloadPdf(issueId)`, `reprint(visitId, req)`.
-- All free text is escaped on output, **including in the print view** (R-21, EC-61) — Angular interpolation does this by default; the acceptance criteria below verify no `innerHTML` binding exists on the print path.
-
-**5. Data integrity check.** Closes **Mutable history** on the single most consequential artefact in the product (RISK-5, EC-34): once a visit can be amended, "what the patient is holding" and "what the record says" diverge, and only the snapshot reconciles them. Closes a **Duplicate** vector too (EC-52): the app cannot know whether the print dialog completed, so "issued" means "generated", and reprint is one click — so a doctor reacting to a cancelled dialog never starts a second visit. Snapshot-before-render closes EC-56.
+**5. Data integrity check.** Mutable-history mode, closed. The original text is never overwritten; each amendment carries its own timestamp; the printed sheet the patient holds always matches the stored original (E-32). Reopening a finalized visit produces an amendment, never an edit (E-39). Each amendment writes an `AuditEvent` (F-17).
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/PrescriptionServiceTests.cs` — the snapshot captures the patient's name **as at issue time** and is unaffected by a later demographic edit (**EC-34**); a reprint copies the source snapshot byte-for-byte and sets `IssueKind = Reprint` (**EC-52**); zero medications renders "No medication prescribed" (**EC-3**); `SnapshotHash` matches the content.
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/PrescriptionsControllerTests.cs` — no endpoint or context path can update or delete a `PrescriptionIssue`; a PDF render failure returns 500 with `ProblemDetails` while the issue row still exists (**EC-55**, **EC-56**).
-- Frontend unit: `prescription-layout.component.spec.ts` (page-break classes applied; header fields present), `prescription.service.spec.ts`.
-- E2E: `frontend/e2e/prescription-print.spec.ts` (Playwright, PDF via `page.pdf()`) — golden path finalize → print; **EC-9** a 12-medication prescription paginates with a repeating header and "Page 1 of 2"; **EC-10** a 4,000-character complaint wraps with no clipped text; **EC-62** a Devanagari patient name renders as glyphs, not boxes; **EC-11** a 300-character name truncates in the header only. **Print output is verified on Chrome, Edge and Safari before go-live (C-35/R-16)** — the Safari pass is a manual checklist item in the release runbook, since Playwright's WebKit is not Safari's print engine.
+- Backend unit: `PMS.Application.Tests/Services/AmendmentServiceTests.cs` — sequence assignment, rejection on a draft visit, no update/delete method exposed on the interface.
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/AmendmentsEndpointTests.cs` — two amendments return in order; PUT and DELETE on the route return 405.
+- Frontend unit: `features/visits/AmendmentPanel.test.tsx` — original section is read-only; empty amendment text is rejected.
+- E2E: `PMS.E2E/amendments.spec.ts` — **E-32**: finalize, print, then correct the diagnosis by amendment; confirm the original diagnosis text is still visible and the reprinted PDF is unchanged.
 
 **7. Acceptance criteria.**
-- [ ] Finalizing creates exactly one `PrescriptionIssue` with `IssueKind = Original` and a populated `SnapshotJson`.
-- [ ] Editing the patient's name after finalize does **not** change what a reprint of that visit prints (EC-34).
-- [ ] Reprint creates a new row flagged `Reprint` and reproduces the original document identically (EC-52).
-- [ ] A prescription with 12 medications prints across pages with a repeating clinic header, "Page N of M", and no medication row split across a page break (EC-9, EC-16).
-- [ ] A 4,000-character complaint prints wrapped in full with no clipped text (EC-10).
-- [ ] A patient name in Devanagari prints as readable glyphs, not boxes (EC-62).
-- [ ] A visit with no medications prints "No medication prescribed" rather than an empty section (EC-3).
-- [ ] Printing is blocked while `ClinicProfile.IsSetupComplete` is false (EC-1).
-- [ ] Free text containing `<script>` or `&` renders literally on the printed page (EC-61).
-- [ ] No code path updates or deletes a `PrescriptionIssue` — verified by `NoHardDeleteTests`.
-- [ ] The layout has been visually verified on Chrome, Edge and Safari and the results recorded in the release checklist (C-35).
+- [ ] No API route, service method or UI control can modify or delete a finalized visit's clinical fields or an existing amendment (405/409 asserted).
+- [ ] An amendment renders with its own date and is visually separated from the original record.
+- [ ] Reprinting after an amendment reproduces the original prescription; the amendment is not injected into the historical sheet (E-32).
+- [ ] Amendments on a draft visit return 409 (E-39).
 
-**8. Effort & dependencies.** **L** (print layout across three browsers plus PDF rendering is genuinely over a week; RISK-18 is High/Major). Depends on F-16, F-6. Depended on by F-18, F-19, F-20.
+**8. Effort & dependencies.** **L (M after Q-3).** Depends on F-14. Blocks F-16 (history renders amendments).
 
 ---
 
-### F-18 — Amendments after finalize
+### F-16 — Patient history + date filter
 
-**1. Readiness — Needs decision (OQ-2).** D-1 converged on **option D** (append-only amendments); OQ-2 is the owner ratifying that a finalized consultation may be edited at all and that changes are visibly marked.
+**1. Readiness.** **Ready.** C-33 and C-34 are `Ready` in the brainstorm with named defaults; this feature's schedule risk is entirely upstream (F-10, F-14, F-15).
+Defaults adopted: **newest-first ordering; drafts included but visibly distinct (E-31); inclusive date range picker with presets (Last 30 days / This year / All); explicit empty state (E-4); pagination at 50 visits (E-16).**
 
-> **Assumption (OQ-2 — may a finalized consultation be edited after printing, and must the change be marked?):** building D-1 **option D** as converged — **yes, via append-only amendments**, never in-place edits, each stamped with a timestamp and a required reason and always visible in history. If the owner instead chooses D-1 option C (post-finalize edits overwrite silently), **that must be recorded as an accepted risk with no audit answer** (brainstorm §14) — do not simply drop this feature and leave the gap unstated.
->
-> **Diverging from the brainstorm doc: no.** This plan takes D-1 D exactly as converged, including the honest trade-off stated in §14 — the doctor needs one sentence of onboarding that corrections append rather than overwrite. That onboarding line belongs in the amendment dialog copy, and is listed as an acceptance criterion below.
-
-**2. Data model.** `VisitAmendment` per §4, append-only. Amendable fields in Phase 1: `ComplaintsText`, `DiagnosisText`, medication lines (as a whole-list replacement recorded as one amendment), vitals values. Each amendment stores `PriorValue` and `NewValue`. `Visit` itself is updated to the new value **and** the prior value is preserved in the amendment row — the history renders both. Migration: **`AddVisitAmendment`**.
+**2. Data model.** No new entities. Read-only projections `VisitSummaryResponse` and `VisitDetailResponse`; a covering index on `Visit(PatientId, VisitDate DESC)` is added in migration **`AddVisitHistoryIndex`** to hold the C-12 latency budget at 25,000 visits.
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| POST | `/api/visits/{id}/amendments` | `CreateAmendmentRequest { FieldChanged, NewValue, Reason }` | `VisitAmendmentDto` | 201, 400, 404, **409 (visit is still a draft — edit it instead)**, 401 | Cookie |
-| GET | `/api/visits/{id}/amendments` | — | `VisitAmendmentDto[]` | 200, 404, 401 | Cookie |
+| GET | `/api/patients/{id}/visits?from=&to=&page=&size=` | — | `PagedResponse<VisitSummaryResponse>` | 200, 400, 404 | cookie |
+| GET | `/api/visits/{id}/detail` | — | `VisitDetailResponse` (vitals + complaint + diagnosis + medications + amendments + prescription) | 200, 404 | cookie |
 
-`Reason` is required (min length enforced by validation). Each amendment writes a `VisitAmended` audit row in the same transaction. A medication or diagnosis amendment offers an **amended reissue** (`PrescriptionIssueKind.AmendedReissue`, F-17), which creates a **new** snapshot without touching the original.
+**4. Frontend design.** `features/history/PatientHistory.tsx` (rendered inside route `/patients/:id`), `features/history/HistoryDateFilter.tsx`, `features/history/VisitDetail.tsx` (route `/patients/:id/visits/:visitId`). `features/history/historyApi.ts`: `listVisits(patientId, filter)`, `getVisitDetail(visitId)`. Hook `usePatientHistory(patientId, filter)` with `keepPreviousData` so filter changes never blank the list. Draft rows render `DraftBanner`'s badge (E-31).
 
-**4. Frontend design.**
-- `features/consultation/amendment-dialog.component.ts` — opened from a finalized visit's read-only view; shows the current value, a new-value input and a required reason box, plus the onboarding sentence: "Corrections are added as a dated amendment. The original record and the prescription already given to the patient are preserved."
-- `features/history/visit-detail.component.ts` (F-19) renders an "Amendments" section listing each amendment with its date, field, prior value and reason.
-- `consultation.service.ts` gains `createAmendment(visitId, req)` and `listAmendments(visitId)`.
-
-**5. Data integrity check.** This is the **Mutable history** closure for the visit record (RISK-1's second half, EC-34): a finalized record can never be silently rewritten; corrections append with a timestamp and reason, and the original prescription snapshot stays intact so the paper in the patient's hand remains reconcilable with the record.
+**5. Data integrity check.** Orphan/readability mode. History is the surface where a mislabelled draft becomes a clinical misreading — an unfinished draft displayed as a completed visit is the exact failure REC-1's top unresolved edge case (E-31) warns about. Prevented by a mandatory, non-dismissible "Draft — not finalized" badge on every draft row and detail view.
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/VisitAmendmentServiceTests.cs` — amending a draft returns the domain error (use the draft path instead); an amendment without a reason is rejected; `PriorValue` captures the pre-amendment value exactly; an amendment never mutates any existing `PrescriptionIssue` (**EC-34**).
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/AmendmentsControllerTests.cs` — after an amendment, `GET /api/prescription-issues/{originalId}` returns unchanged content; an amended reissue creates a second issue row.
-- Frontend unit: `amendment-dialog.component.spec.ts` (reason required; onboarding copy present).
-- E2E: `frontend/e2e/visit-amendment.spec.ts` — **EC-34**: finalize and print, then amend the diagnosis, then confirm history shows both the amendment and the original printed snapshot.
+- Backend unit: `PMS.Application.Tests/Services/HistoryServiceTests.cs` — inclusive bounds, newest-first order, drafts included with state flag, paging.
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/HistoryEndpointTests.cs` — 25,000-visit seed, asserts p95 latency inside the C-12 budget and correct page boundaries.
+- Frontend unit: `features/history/PatientHistory.test.tsx` (draft badge present), `features/history/HistoryDateFilter.test.tsx` (empty-match state).
+- E2E: `PMS.E2E/patient-history.spec.ts` — golden path; **E-31**: a patient with one finalized and one abandoned visit shows two visually distinct rows and the draft is excluded from any "completed visits" count.
 
 **7. Acceptance criteria.**
-- [ ] A finalized visit cannot be edited in place through any endpoint; the only write path is `POST /api/visits/{id}/amendments`.
-- [ ] An amendment without a reason returns 400.
-- [ ] After an amendment, the original `PrescriptionIssue` content is byte-identical to before (EC-34).
-- [ ] Visit history shows every amendment with its date, the field changed, the prior value and the reason.
-- [ ] An amended reissue creates a new `PrescriptionIssue` flagged `AmendedReissue` and leaves the original in place.
-- [ ] The amendment dialog states in one sentence that corrections append and the original is preserved (brainstorm §14 onboarding note).
-- [ ] Each amendment writes a `VisitAmended` audit row in the same transaction.
+- [ ] Visits render newest-first with date, diagnosis snippet and medication count.
+- [ ] A draft visit carries a "Draft — not finalized" badge in both the list and the detail view (E-31).
+- [ ] A date range matching nothing renders an explicit empty state, not a blank grid (E-4, C-34).
+- [ ] A patient with zero visits renders "No previous visits" plus a start-consultation action (E-4).
+- [ ] With 25,000 visits seeded, the first history page returns inside the 2 s budget (C-12, REC-19).
+- [ ] Visit detail shows vitals (with units or not-recorded reasons), complaint, diagnosis, medications, amendments and prescription number.
 
-**8. Effort & dependencies.** **M (L while OQ-2 open).** Depends on F-16, F-17, F-5. Depended on by F-19 (rendering).
+**8. Effort & dependencies.** **M.** Depends on F-10, F-14, F-15. Blocks F-18.
 
 ---
 
-### F-19 — Patient history + visit detail + date filter
+### F-17 — Audit trail (six event types)
 
-**1. Readiness — Ready.** C-25's default is adopted as converged: **visit-date range filter; drafts shown and clearly flagged.**
+**1. Readiness.** **Needs decision.**
+> **Assumption (REC-9 / C-48 — brainstorm §12 carries no `Q-` for the audit trail; this plan's own finding, see §9):** a minimal append-only trail on **six event types** — `VisitFinalized`, `VisitAmended`, `PrescriptionPrinted` (with reprint flag), `PatientDemographicsEdited` (old + new), `PatientDeactivated`, `ExportGenerated`. Not a general-purpose audit framework. Retention of audit rows follows whatever Q-6 sets for clinical data.
 
-**2. Data model.** No new entity. Migration: **`AddVisitHistoryIndexes`** — index on `Visit (PatientId, ClinicDate DESC)` to hold the < 2 s history-load budget (B-6).
+**2. Data model.** `AuditEvent` (§4). Migration: **`AddAuditEvent`**. `IAuditWriter.WriteAsync(...)` is called **inside the same transaction as the event it records**, so an audited action and its trail commit or fail together. No update or delete path exists.
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| GET | `/api/patients/{id}/visits?from=&to=&includeDrafts=true` | — | `VisitListItemDto[]` | 200, 400, 404, 401 | Cookie |
-| GET | `/api/visits/{id}/detail` | — | `VisitDetailDto { Visit, Vitals, Medications[], Amendments[], PrescriptionIssues[] }` | 200, 404, 401 | Cookie |
+| GET | `/api/audit?from=&to=&type=&entityId=&page=&size=` | — | `PagedResponse<AuditEventResponse>` | 200, 400 | cookie |
 
-`VisitListItemDto { Id, ClinicDate, LifecycleState, DiagnosisSummary, MedicationCount, HasAmendments, IsBackdated, PrescriptionIssueCount }`.
+There is deliberately no write endpoint — audit rows are only ever written by services.
 
-**4. Frontend design.**
-- `features/history/patient-history.component.ts` — route `/patients/:id/history`; timeline of visits, newest first, with `shared/date-range-filter/date-range-filter.component.ts`.
-- `features/history/visit-detail.component.ts` — route `/visits/:id/detail`; read-only render of vitals, complaints, diagnosis, medications, amendments (F-18) and prescription issues (F-17).
-- Draft visits render with a distinct "Draft — unfinished" badge and a "Resume" action (**EC-33**); backdated visits show both `ClinicDate` and `CreatedOn` with a "recorded later" label (**EC-39**).
-- A patient with zero visits shows a "First visit" empty state, not an empty table (**EC-5**).
-- `history.service.ts` — `listVisits(patientId, filter)`, `getVisitDetail(visitId)`.
+**4. Frontend design.** `features/audit/AuditLogPage.tsx` (route `/audit`), `features/audit/auditApi.ts` (`listAudit(filter)`), `features/audit/useAuditLog.ts`. Read-only table: time, event type, entity, summary.
 
-**5. Data integrity check.** Drafts are **always visible** here — that is the obligation D-1 introduces (brainstorm §14: "drafts must always be visible in history, or an abandoned draft becomes a record nobody knows exists"). Backdating is allowed but labelled: `ClinicDate` and `CreatedOn` are both shown, so undisclosed backdating is impossible (**EC-39**). This is a read-only feature — no write path, no new integrity exposure.
+**5. Data integrity check.** Mutable-history mode (RSK-9, E-63). Same-transaction writes mean an action can never exist without its trail; no update/delete surface means the trail cannot be edited to match a story. This is the record that answers "what was prescribed, when, and what changed" years later (§5.7).
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/VisitHistoryServiceTests.cs` — date filter is inclusive on both ends in clinic timezone; drafts included by default (**EC-25**, **EC-33**); `IsBackdated` surfaces (**EC-39**).
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/VisitHistoryTests.cs` — a patient with 200 visits returns the filtered page in under 2 s (B-6).
-- Frontend unit: `patient-history.component.spec.ts` (draft badge, first-visit empty state — **EC-5**), `date-range-filter.component.spec.ts`, `visit-detail.component.spec.ts` (amendments section rendered).
-- E2E: `frontend/e2e/patient-history.spec.ts` — golden path view history and open a past visit; **EC-33** an unfinished draft is visible and resumable from history.
+- Backend unit: `PMS.Application.Tests/Services/AuditWriterTests.cs` — event written for each of the six types; a rolled-back transaction leaves no audit row.
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/AuditEndpointTests.cs` — finalize then query returns exactly one `VisitFinalized`; PUT/DELETE on `/api/audit/{id}` return 405.
+- Frontend unit: `features/audit/AuditLogPage.test.tsx` — filter by type, paging.
+- E2E: `PMS.E2E/audit.spec.ts` — **E-63**: perform finalize, print, reprint, amend, demographic edit, deactivate and export, and confirm six distinct entries appear.
 
 **7. Acceptance criteria.**
-- [ ] A patient's history lists every visit newest-first with date, diagnosis summary and medication count.
-- [ ] Draft visits appear in history with a visible "Draft — unfinished" badge and a working Resume action (EC-33).
-- [ ] A date-range filter returns visits on the boundary dates themselves (inclusive) in clinic timezone.
-- [ ] A backdated visit shows both its clinic date and the date it was recorded (EC-39).
-- [ ] A patient with no visits shows a "First visit" state, not an empty grid (EC-5).
-- [ ] Opening a past visit shows vitals, complaints, diagnosis, medications, amendments and prescription issues on one screen.
-- [ ] History for a patient with 200 visits loads in under 2 s (B-6, BRD NFR Performance).
+- [ ] Each of the six actions writes exactly one `AuditEvent` with a UTC timestamp.
+- [ ] `PatientDemographicsEdited` contains both the old and the new value.
+- [ ] `PrescriptionPrinted` distinguishes an original from a reprint.
+- [ ] A failed/rolled-back finalize leaves no audit row (verified by count query in SSMS or the integration test).
+- [ ] No API surface can modify or delete an audit row.
 
-**8. Effort & dependencies.** **M.** Depends on F-13, F-16, F-17, F-18. Depended on by F-20.
+**8. Effort & dependencies.** **L (M after audit acceptance).** Depends on F-1. Consumed by F-8, F-9, F-14, F-15, F-18.
 
 ---
 
-### F-20 — Export CSV/PDF (scoped, confirmed, audited)
+### F-18 — Export CSV / PDF
 
-**1. Readiness — Needs decision (OQ-10).** D-6 converged on **B + C + F** (scoped to the current view, confirmation naming the record count, audit entry).
+**1. Readiness.** **Needs decision.**
+> **Assumption (Q-11):** export scope defaults to the **narrowest useful selection** (REC-10) — three scopes only: **one visit**, **one patient's visits (optionally date-ranged)**, and **all visits in a date range**. **There is no whole-database export in Phase 1.** Every export writes an `ExportGenerated` audit event (F-17) and shows a PHI warning before the file is produced (E-61).
+> Hardening is `Ready` and non-negotiable: RFC-4180 quoting, formula-injection prefix escaping, UTF-8 BOM (E-55, E-56, E-57).
 
-> **Assumption (OQ-10 — current-view export or full-database export, and who may use it):** building **D-6 B+C+F** — export is scoped to the current view (this patient's history, or this date range), a confirmation names exactly what is leaving and how many records, and an `DataExported` audit row is written. **No full-database export button exists.** Password-protected PDF / passphrase-protected CSV is parking-lot **P-3**. If the owner requires a full-database export, that is a new scope decision with the privacy consequence stated in D-6 option A.
->
-> **Non-negotiable regardless of the answer (D-6, EC-59, EC-60):** CSV output neutralises formula-injection prefixes (`=`, `+`, `-`, `@`) and applies RFC 4180 quoting for commas, quotes and newlines inside complaint and diagnosis text.
-
-**2. Data model.** No new entity — export is recorded as an `AuditEvent` (F-5). Migration: **none**.
+**2. Data model.** No new entities; export events land in `AuditEvent`. No migration.
 
 **3. API design.**
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
+| Method | Route | Request DTO | Response DTO | Status | Auth |
 |---|---|---|---|---|---|
-| GET | `/api/export/preview?scope=patient|visits&patientId=&from=&to=` | — | `ExportPreviewDto { RecordCount, ScopeDescription, Columns[] }` | 200, 400, 401 | Cookie |
-| POST | `/api/export/csv` | `ExportRequest { Scope, PatientId?, From?, To?, ConfirmedCount }` | `text/csv` (filename `pms-<scope>-<yyyyMMdd-HHmm>.csv`) | 200, 400, **409 (count changed since preview)**, 401 | Cookie |
-| POST | `/api/export/pdf` | `ExportRequest` | `application/pdf` | 200, 400, 409, 500, 401 | Cookie |
+| POST | `/api/export/preview` | `ExportRequest{scope,patientId?,visitId?,from?,to?}` | `ExportPreviewResponse{rowCount,estimatedSizeKb}` | 200, 400 | cookie |
+| POST | `/api/export/csv` | `ExportRequest` | `text/csv` stream | 200, 400, 409 (empty range), 500 | cookie |
+| POST | `/api/export/pdf` | `ExportRequest` | `application/pdf` stream | 200, 400, 409, 500 | cookie |
 
-Backed by `ExportService` using `ICsvWriter` (`PMS.Infrastructure/Export/CsvWriter.cs`, RFC 4180 + formula-prefix neutralisation) and the F-17 `IPdfRenderer`. **Export is disabled when `RecordCount == 0`** — a zero-row file that looks like a successful export is never produced (**EC-6**).
+**4. Frontend design.** `features/export/ExportPage.tsx` (route `/export`) — scope selector, date range, preview row count, and a **PHI warning that must be acknowledged before the download starts** (E-61). `features/export/exportApi.ts`: `previewExport(req)`, `downloadCsv(req)`, `downloadPdf(req)`. Hook `useExport()`. A zero-row preview blocks the download with "Nothing to export in this range" rather than emitting an empty file (E-6). Generation failure shows a retry and no partial file (E-53).
 
-**4. Frontend design.**
-- `features/export/export-dialog.component.ts` — opened from patient history (F-19) and from the search results view; calls `preview()` first and renders "Export 37 visits for Ramesh K. (01 Jan – 18 Aug 2026) as CSV?" before enabling the confirm button (D-6 C).
-- `export.service.ts` — `preview(scope: ExportScope): Observable<ExportPreviewDto>`, `downloadCsv(req)`, `downloadPdf(req)`.
-- A one-line standing notice in the dialog: exported files are unencrypted and remain on this computer until deleted (**EC-67** — the app cannot control the filesystem and says so rather than pretending otherwise).
-
-**5. Data integrity check.** **Silent loss in the exported artefact** (EC-59): an unescaped comma or newline in a complaint splits the CSV row and the export *looks* successful — closed by RFC 4180 quoting. **Weaponised export** (EC-60): a field starting `=` executes when the file is opened in a spreadsheet on the clinic PC — closed by prefix neutralisation. Privacy exposure (EC-67) is reduced by scoping and made answerable by the audit entry, not eliminated — stated honestly here and in §8.
+**5. Data integrity check.** Output-integrity and privacy modes. A complaint containing commas, quotes or newlines is RFC-4180 quoted so columns never shift silently (E-55) — a corrupted export is the failure that *looks* fine when opened. Fields beginning `=`, `+`, `-`, `@` are prefix-escaped so an exported file cannot execute in Excel on someone else's machine (E-56). UTF-8 BOM keeps non-Latin names intact (E-57). The file leaving the app is unpreventable; it is warned and logged (E-61).
 
 **6. Test strategy.**
-- Backend unit: `PMS.Application.Tests/Services/ExportServiceTests.cs` and `PMS.Infrastructure.Tests/CsvWriterTests.cs` — a complaint containing `a, b "c" \n d` round-trips through a CSV parser to the identical string (**EC-59**); a field beginning `=cmd|` is neutralised (**EC-60**); zero records returns the disabled result rather than an empty file (**EC-6**); scope never widens beyond the requested patient/date range.
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/ExportControllerTests.cs` — a successful export writes exactly one `DataExported` audit row naming the scope and count; a mismatched `ConfirmedCount` returns 409.
-- Frontend unit: `export-dialog.component.spec.ts` (confirm disabled until preview returns; count displayed; disabled at zero).
-- E2E: `frontend/e2e/export.spec.ts` — golden path export a patient's history to CSV and assert the downloaded file's row count; **EC-60** a patient note beginning with `=` downloads neutralised.
+- Backend unit: `PMS.Application.Tests/Services/ExportServiceTests.cs` and `PMS.Application.Tests/Export/Rfc4180CsvWriterTests.cs` — embedded comma/quote/newline round-trip, formula-prefix escaping for all four characters, BOM present, zero-row rejection.
+- Backend integration: `PMS.Api.IntegrationTests/Endpoints/ExportEndpointTests.cs` — CSV re-parses to the expected column count for every row; each export writes one audit event.
+- Frontend unit: `features/export/ExportPage.test.tsx` — warning must be acknowledged; zero-row preview disables download.
+- E2E: `PMS.E2E/export.spec.ts` — **E-55/E-56**: export a visit whose complaint contains `"Chest pain, since Monday\nworse at night"` and a diagnosis beginning `=`, then assert column alignment and the escaped prefix in the downloaded file.
 
 **7. Acceptance criteria.**
-- [ ] Every export is preceded by a confirmation naming the scope and the exact record count (D-6 C).
-- [ ] There is no UI or API route that exports the entire database in one call (D-6 B).
-- [ ] A complaint containing commas, double quotes and newlines survives a CSV round-trip byte-identically (EC-59).
-- [ ] A field beginning `=`, `+`, `-` or `@` is neutralised in the CSV output (EC-60).
-- [ ] Export is disabled and produces no file when the scope contains zero records (EC-6).
-- [ ] Each completed export writes one `DataExported` audit row recording scope, record count and timestamp (D-6 F).
-- [ ] The export dialog states that the downloaded file is unencrypted and remains on the computer (EC-67).
-- [ ] A failed PDF render returns an explicit error and no partial file, rather than a silent blank download (EC-55).
+- [ ] A complaint containing a comma, a double quote and a newline exports as a single correctly-quoted field; re-parsing yields the original text (E-55).
+- [ ] A field beginning `=`, `+`, `-` or `@` is prefix-escaped in the CSV (E-56).
+- [ ] The CSV opens in Excel with non-Latin names rendered correctly (BOM present) (E-57).
+- [ ] An export over an empty date range is refused with a message and no file is written (E-6).
+- [ ] Every successful export writes one `ExportGenerated` audit event naming scope and row count (E-61).
+- [ ] No endpoint offers a whole-database export.
 
-**8. Effort & dependencies.** **M (L while OQ-10 open).** Depends on F-8, F-19, F-5. Depended on by nothing.
+**8. Effort & dependencies.** **L (M after Q-11).** Depends on F-14 (PDF renderer), F-16 (projections), F-17 (audit). Blocks nothing.
 
 ---
 
-### F-21 — Backup + visible backup status
+### F-19 — Keyboard-first input + performance instrumentation
 
-**1. Readiness — Needs decision (OQ-3).** R-9 converged on the mechanism (visible status, last-success timestamp, rehearsed restore); the numbers are the owner's.
+**1. Readiness.** **Needs decision.**
+> **Assumption (Q-15):** the 2–3 minute target is split per **REC-14 / §5.1** — **(a) system overhead ≤ 30 s per visit**, instrumented and regression-tested, and **(b) end-to-end ≤ 3 min** against a defined typical-visit fixture (3 vitals, ≤200-char complaint, ≤100-char diagnosis, 2 medications), used as an acceptance test only. Both numbers need the owner's confirmation; the keyboard work itself (REC-16) is `Ready` and independent.
+> **Assumption (REC-19):** the single latency number used everywhere is **p95 ≤ 2 s at 5,000 patients / 25,000 visits**, and the sizing ceiling is **≤ 40 consultations/day, ≤ 6,000 patients, ≤ 30,000 visits over five years** (C-46) — stated so nobody over-engineers.
 
-> **Assumption (OQ-3 — the recovery objective that replaces "No data loss"):** building against **RPO = 24 hours for the database plus ≤ 5 seconds of in-progress typing** (the F-13 autosave window), delivered as a **nightly SQL Server full backup at 01:00 plus transaction-log backups every 30 minutes**, retained **30 days**, with a **verified restore rehearsed before go-live** and re-rehearsed quarterly. If the owner states a tighter RPO, the log-backup interval changes; nothing else does.
+**2. Data model.** None. `RequestTimingMiddleware.cs` (F-1) emits per-endpoint server timings to the log; no PHI is logged.
 
-**2. Data model.** `BackupStatus` singleton per §4. Migration: **`AddBackupStatus`**. The backups themselves are **SQL Server Agent jobs created in SSMS** — scripted into `backend/deploy/sql/backup-jobs.sql` and version-controlled, not managed by the application. The application only *observes* them.
+**3. API design.** No new endpoints. Server-Timing headers are added to existing responses.
 
-**3. API design.**
+**4. Frontend design.** `shared/hooks/useHotkeys.ts` registering: `/` focus global search, `Alt+1..4` jump to Vitals/Complaint/Diagnosis/Medications, `Ctrl+Enter` finalize, `Esc` close dialogs (option E, REC-16). `shared/components/HotkeyHintRow.tsx` makes them discoverable. Fixed and tested tab order across `ConsultationPage.tsx`. `shared/api/httpClient.ts` records client-side round-trip timings behind a dev flag.
 
-| Method | Route | Request DTO | Response DTO | Status codes | Auth |
-|---|---|---|---|---|---|
-| GET | `/api/backup-status` | — | `BackupStatusDto { LastSuccessAt, HoursSinceLastSuccess, State (Ok/Stale/Failed/Unknown), Message, FreeSpaceGb }` | 200, 401 | Cookie |
-
-`BackupStatusProbe` (`PMS.Infrastructure/Backup/`) reads `msdb.dbo.backupset` for the last successful full/log backup and queries `sys.dm_os_volume_stats` for free space (**EC-57**). `State = Stale` when the last success is older than 26 hours; `Failed` when the last recorded attempt failed.
-
-**4. Frontend design.**
-- `features/home/backup-status-card.component.ts` — permanent card on `/today`: green with the last-success timestamp, amber when stale, red when failed or when free space is below the configured threshold. **The timestamp is always shown, never just a green tick** (EC-50).
-- `backup-status.service.ts` — `get(): Observable<BackupStatusDto>`, polled every 15 minutes.
-- `doc`/runbook deliverable: `backend/deploy/RESTORE-RUNBOOK.md` covering the rehearsed restore (**EC-54**) — a written artefact, not code.
-
-**5. Data integrity check.** Closes the review's single most dangerous **Silent loss** item (RISK-9, EC-50): a backup that fails silently is invisible until the day it matters. Visible status with a real timestamp converts it into something someone notices. EC-53 (power cut) is bounded by the F-13 autosave window; EC-57 (storage full) surfaces here and a failing write fails loudly via the F-1 error pipeline.
+**5. Data integrity check.** No new write path. One risk it introduces: `Ctrl+Enter` finalizing prematurely — mitigated because finalize always routes through `FinalizeDialog.tsx` (F-10), so the shortcut opens the confirm, never commits directly.
 
 **6. Test strategy.**
-- Backend unit: `PMS.Infrastructure.Tests/BackupStatusProbeTests.cs` — a last success 30 hours ago yields `Stale`; a failed attempt yields `Failed`; no backup history yields `Unknown`, never `Ok` (**EC-50**).
-- Backend integration: `PMS.Api.IntegrationTests/Controllers/BackupStatusControllerTests.cs` — endpoint returns a populated DTO against LocalDB with a seeded `backupset` fixture.
-- Frontend unit: `backup-status-card.component.spec.ts` — each state renders its colour and always renders the timestamp.
-- E2E: `frontend/e2e/backup-status.spec.ts` — **EC-50**: with a stubbed stale status, `/today` shows the amber warning and the last-success date.
-- **Manual, pre-go-live:** a full restore rehearsal from a real backup into a scratch database, timed and recorded in the runbook (**EC-54**). This is a release-gate checklist item, not an automated test.
+- Backend unit: n/a.
+- Backend integration: `PMS.Api.IntegrationTests/Performance/EndpointBudgetTests.cs` — seeded dataset, asserts search, history and finalize stay inside budget.
+- Frontend unit: `shared/hooks/useHotkeys.test.ts`, `features/visits/ConsultationPage.taborder.test.tsx`.
+- E2E: `PMS.E2E/typical-visit.spec.ts` — the §5.1 fixture driven **keyboard-only**, recording total system overhead.
 
 **7. Acceptance criteria.**
-- [ ] `/today` always shows the last successful backup timestamp, not merely a status icon (EC-50).
-- [ ] A backup older than 26 hours renders as Stale in amber; a failed attempt renders red.
-- [ ] With no backup history at all, the state is `Unknown` and never `Ok` (EC-50).
-- [ ] Free disk space below the configured threshold raises the card to red (EC-57).
-- [ ] `backend/deploy/sql/backup-jobs.sql` is in source control and creates the nightly full + 30-minute log jobs when run in SSMS.
-- [ ] A restore rehearsal has been performed, timed, and signed off in `backend/deploy/RESTORE-RUNBOOK.md` before go-live (EC-54).
-- [ ] The stated recovery objective (24 h database / 5 s typing) appears in the runbook, replacing "No data loss" (B-3).
+- [ ] A complete typical visit (fixture above) can be entered and finalized without touching the mouse.
+- [ ] `/`, `Alt+1..4`, `Ctrl+Enter` and `Esc` behave as listed and are shown in a hint row.
+- [ ] `Ctrl+Enter` opens the finalize confirm; it never commits directly.
+- [ ] Measured system overhead for the fixture visit is ≤ 30 s (Q-15 assumption).
+- [ ] Search and history p95 ≤ 2 s at 5,000 patients / 25,000 visits (C-12, REC-19).
+- [ ] Shortcuts are verified working in Chrome, Edge and Safari (C-47).
 
-**8. Effort & dependencies.** **M (L while OQ-3 open).** Depends on F-1, F-2. Depended on by nothing; **go-live gate**.
-
----
-
-### F-22 — Retention & deletion policy enforcement
-
-**1. Readiness — Blocked — needs decision first.**
-
-**What must be resolved:** **OQ-8 — "What retention period applies to patient records, and is deletion ever permitted?"** (coverage row **C-33**; **RISK-13**; **EC-73**). The brainstorm doc states plainly: *"The BRD is silent and I will not invent a jurisdiction."* Right-to-be-forgotten versus a mandatory medical-record retention period is a legal question whose answer is jurisdiction-specific and may need external advice — the two possible answers ("never delete, retain N years" versus "delete on request after N years") produce opposite implementations.
-
-**Why no concrete steps:** the entity, the job and the UI all depend on the answer. A retention model needs a purge job, a retention clock on `Patient`/`Visit`, and a legal-hold flag; a delete-on-request model needs an irreversible anonymisation path that must *not* orphan visits — the exact hole F-10 was built to close. Naming file targets before the policy exists would be guessing at a legal outcome.
-
-**Where it must be resolved:** BRD — there is currently **no retention or deletion section at all**; one must be added. Then **OQ-8** in `doc/brainstorm-pms-verification.md` §12.
-
-**Interim while unresolved:** **F-10's archive-not-delete stands as the stated safe default** (EC-37, EC-73), and it holds indefinitely without schema change. Nothing downstream is blocked; when OQ-8 lands, F-22 is an additive job plus a policy screen.
-
-**Effort & dependencies.** **L** (Blocked; may require legal input before design can begin). Depends on F-10 and on OQ-8. Blocks nothing in the build.
+**8. Effort & dependencies.** **L (S after Q-15).** Depends on F-10..F-13. Blocks nothing.
 
 ---
 
-## 7. Not planned in Phase 1
+### F-20 — Backup, restore rehearsal, backup-status indicator, encryption at rest
 
-The BRD's *Out of Scope* list and the brainstorm's parking lot (§11) get no feature sections. One-line architectural note only: nothing in this plan forecloses them. Multi-user (**P-4**) is not foreclosed because Identity is already a real user table rather than a hardcoded credential, and every audit row carries a timestamp that a `UserId` column can join to later. Duplicate merge (**P-1**) is not foreclosed because `ArchivedIntoPatientId` already records the survivor pointer that a merge tool would consume. Vitals trend charting (**P-13**) is not foreclosed because vitals are stored as structured numerics, not free text. Structured diagnosis coding (**P-5**) is not foreclosed because `DiagnosisText` can gain a sibling code column additively. Pagination (**P-12**) is not built (EC-18, `accepted`) but every list endpoint returns a DTO array behind a service method that can become paged without a contract break.
+**1. Readiness.** **Blocked — needs decision first.**
 
----
+**What must be resolved, and where:**
+- **Q-1 (Critical, policy call): where does this run — clinic PC, LAN server, or cloud?** Until this is answered there is no backup *destination*, no meaning for "encryption at rest" (C-45: disk encryption + key custody on a clinic PC vs. storage encryption + TLS in cloud), no session-security context, and no answer to what happens to the clinic during an outage (C-9, §5.6).
+- **Q-12 (Critical, policy call then design + build): what is the acceptable data-loss window (RPO), and who is told when a backup fails?** A backup nobody monitors is not a backup (C-43, E-48), and an untested restore is an assumption, not a control (E-50).
 
-## 8. Cross-cutting concerns
+**Why no steps are written:** every concrete artefact this feature needs — a SQL Server Agent job vs. a scheduled `sqlcmd` script vs. a managed cloud backup, a destination path or container, a TDE/BitLocker decision, an alerting channel — is determined by Q-1. Writing file targets now would be guessing at infrastructure, and this is the one feature where a wrong guess is unrecoverable.
 
-| Concern | Approach | Where it lands |
-|---|---|---|
-| **Auth** | Cookie-based ASP.NET Core Identity, `HttpOnly`/`Secure`/`SameSite=Strict`, single seeded user, 5-attempt lockout, app-level auto-lock (F-3). Explicitly **not JWT** — see §2. Ratification pending (§9) | F-3; guards in `core/auth.guard.ts` |
-| **Credential recovery** | **Unresolved — F-4 Blocked (OQ-6).** Go-live gate | F-4 |
-| **Audit** | Append-only `AuditEvent`, written in the same transaction as the audited action, 12 action types (F-5) | F-5, consumed by F-9, F-10, F-12, F-13, F-16, F-17, F-18, F-20 |
-| **Backup & recovery** | Nightly full + 30-minute log backups as SQL Agent jobs scripted in `backend/deploy/sql/backup-jobs.sql`; 30-day retention; **rehearsed restore before go-live**; visible status card with a real timestamp (F-21). RPO: 24 h database + ≤ 5 s typing (Assumption, OQ-3) | F-21 |
-| **Error handling** | One `ExceptionHandlingMiddleware`; all failures return RFC 7807 `ProblemDetails`; the frontend `error.interceptor.ts` renders a toast. **A failed write is never rendered as success** (EC-51) | F-1, F-13 |
-| **Encryption** | In transit: HTTPS + HSTS, `Encrypt=True` on the SQL connection. At rest: SQL Server **TDE** on the `PMS` database plus BitLocker on the host volume. Backup files inherit TDE encryption — verify the certificate is backed up separately, or the backups are unrestorable | Deployment checklist; F-21 |
-| **Access control** | Single authenticated role; every controller carries `[Authorize]` by default via a global filter, with `[AllowAnonymous]` only on `/api/health` and `/api/auth/login`. `Cache-Control: no-store` on every patient-data response (EC-71) | F-1, F-3 |
-| **Input normalisation & output escaping (R-21)** | Trim + collapse whitespace, NFC-normalise, straighten smart quotes on every text save; strip formatting on paste; escape all free text on output **including the print view** (EC-61, EC-64, EC-65) | F-7, F-15, F-17 |
-| **Time & timezone (R-22)** | `DateTimeOffset` everywhere; one clinic timezone from `ClinicProfile.TimeZoneId`; `Visit.ClinicDate` fixed at draft creation; **never render browser-local time** (EC-47, EC-48) | F-1, F-11, F-13 |
-| **CSV export** | `PMS.Infrastructure/Export/CsvWriter.cs` — RFC 4180 quoting plus formula-prefix neutralisation. Non-negotiable per D-6 | F-20 |
-| **PDF export & print** | QuestPDF server-side for downloads; the Angular print view renders the same snapshot for browser printing. Snapshot written **before** rendering (EC-56); multi-page rules per R-16 | F-17, F-20 |
-| **Performance (BRD NFR)** | Type-ahead < 300 ms (indexes + debounce + request cancellation, F-8); history load < 2 s (composite index, F-19); route-level lazy `loadComponent` and an initial render < 2 s (F-2). The BRD's 2–5 s figure is retired in favour of the tighter number per C-9 | F-2, F-8, F-19 |
-| **Keyboard-first (B-1)** | Global shortcut service, explicit tab order, `Enter`-to-add-medication; an E2E spec completes a whole consultation without a mouse | F-2, F-15 |
-| **Configuration** | Connection string and Identity keys via user-secrets locally and environment variables in the clinic; `appsettings.json` holds only non-secrets (autosave interval, idle-lock minutes, backup staleness threshold, free-space threshold) | F-1, F-3, F-13, F-21 |
+**What is already fixed and does not need to wait:** the §5.3 **application-level RPO of 5 s of typed content** is delivered by F-10's autosave regardless of Q-1. Only the *database* backup RPO and destination are blocked.
+
+**Effort & dependencies.** **L** (Blocked; the decision cycle plus a restore rehearsal). Depends on F-1 and on Q-1 + Q-12. **Blocks go-live, not the build.** Recommendation: put Q-1 first on the §12 decision-session agenda, exactly as brainstorm §10's sequencing note says — it unblocks four other items in one meeting.
 
 ---
 
-## 9. Test strategy summary
+### F-21 — Credential recovery, lockout policy
 
-**Tooling, stated once:**
+**1. Readiness.** **Blocked — needs decision first.**
 
-| Layer | Tool | Location |
-|---|---|---|
-| Backend unit | **xUnit + NSubstitute** | `backend/tests/PMS.Application.Tests/` |
-| Backend infrastructure unit | xUnit | `backend/tests/PMS.Infrastructure.Tests/` |
-| Backend integration | **xUnit + `WebApplicationFactory<Program>` + SQL Server LocalDB**, database reset between tests with Respawn | `backend/tests/PMS.Api.IntegrationTests/` |
-| Frontend unit | **Jasmine + Karma** (Angular CLI default — no bespoke runner) | co-located `*.spec.ts` |
-| End-to-end | **Playwright** (TypeScript), Chromium + Firefox + WebKit projects | `frontend/e2e/` |
-| Print verification | Playwright `page.pdf()` for layout assertions, **plus a manual Chrome/Edge/Safari checklist before go-live** (C-35 — WebKit is not Safari's print engine) | `frontend/e2e/prescription-print.spec.ts` + release runbook |
+**What must be resolved, and where:** **C-44** — "with exactly one user there is no one to reset the password and no one to unlock a locked-out account." **Brainstorm §12 carries no open question for this**, which is a gap in the open-questions list rather than an answered item; it is listed in §9 below and should be added to the decision-session agenda alongside Q-1.
 
-**Coverage map** (● planned · ○ not applicable):
+The specific calls needed: (a) is there a lockout after N failed attempts, and if so what unlocks it; (b) what is the recovery path when the sole credential is lost — a recovery code issued at setup, a second break-glass account, or documented direct database intervention; (c) who holds the recovery artefact physically.
 
-| Feature | BE unit | BE integration | FE unit | E2E | Edge cases covered (EC IDs) |
+**Why no steps are written:** each of the three candidate answers implies different entities (recovery-code hash on `AppUser`, a second `AppUser` row, or none at all), different endpoints and a different first-run flow. There is no honest default here — the wrong choice either locks the doctor out of their own patient records or leaves a permanent bypass on a machine holding PHI. This is a security decision and this plan will not make it silently.
+
+**Effort & dependencies.** **L** (Blocked). Depends on F-2 and a resolution of C-44. **Blocks go-live** — the clinic should not run on a single credential with no recovery path.
+
+---
+
+## 7. Cross-cutting concerns
+
+**Authentication & session.** Cookie-based, `HttpOnly` / `Secure` / `SameSite=Strict`, per the §2 decision and F-2. Every `/api/*` endpoint except `health` and `auth/login` requires the cookie. Idle screen lock (5 min) is separate from session expiry (12 h) so a lock never costs a draft (E-41, E-62, REC-11).
+
+**Authorization.** One role, one user. Access control is therefore binary — authenticated or not. **Row-level rules are deliberately absent** and the data model does not add a tenant/owner column, per C-46: multi-doctor is parked (§11) and must not be built for.
+
+**Encryption.** *In transit:* HTTPS enforced by `UseHsts` + `UseHttpsRedirection`; the auth cookie is `Secure`-only. *At rest:* **Blocked on Q-1** (F-20) — TDE, BitLocker or cloud storage encryption are three different answers to three different deployment models, and choosing before Q-1 would be a guess (C-45).
+
+**Logging & audit.** Two distinct channels, not one. *Operational logs* (Serilog to rolling files, or the cloud sink Q-1 implies) record request timings and exceptions and **never contain PHI** — no patient names, no complaint text, no medication lines. *Clinical audit* is `AuditEvent` (F-17), append-only, six event types, written in the same transaction as the action.
+
+**Error handling.** One convention: `ProblemDetailsMiddleware.cs` maps validation failures to 400 with a field-keyed `errors` object, domain-rule violations to 409 with a machine-readable `type` (e.g. `visit-already-finalized`, `setup-incomplete`, `illegal-status-transition`), concurrency conflicts to 409 with `rowVersion`, and unhandled exceptions to 500 with a correlation id and no internal detail. `shared/api/httpClient.ts` throws a typed `ProblemDetailsError`; every mutation hook surfaces it — **no promise is silently swallowed**, because a swallowed rejection is exactly the E-47 failure ("doctor believes it saved").
+
+**Backup & restore.** **Blocked on Q-1 + Q-12 (F-20).** What is already decided and independent of that: the application-level RPO of ≤ 5 s of typed content (§5.3, delivered by F-10), a visible last-successful-backup indicator wherever the backup mechanism ends up reporting from (REC-8, E-48), and a **rehearsed restore before go-live** as a hard gate (E-50).
+
+**CSV export implementation.** `PMS.Infrastructure/Export/Rfc4180CsvWriter.cs` — server-side, streaming, RFC-4180 quoting, formula-injection prefix escaping, UTF-8 BOM (E-55, E-56, E-57). Never assembled client-side.
+
+**PDF export & prescription implementation.** `PMS.Infrastructure/Printing/QuestPdfPrescriptionRenderer.cs` — server-side QuestPDF for both the prescription (F-14) and the PDF export (F-18), sharing one document builder so a prescription inside an export is identical to the printed original. Cross-browser print divergence (C-47) is removed by construction.
+
+**Performance (NFR).** Page load < 2 s (BRD L177) is met by a Vite production build with route-level code splitting, and by TanStack Query caching that keeps the daily list and recent patients warm. Search and history hold p95 ≤ 2 s at the stated volumes (C-12, REC-19) via the `NormalizedName`/`NormalizedPhone` and `Visit(PatientId, VisitDate)` indexes plus server-side paging — **no client-side filtering of full result sets anywhere**. Consultation-flow overhead is instrumented and budgeted in F-19.
+
+**Clinical-rule boundary.** No vitals range, dosage limit, frequency rule or interaction check exists anywhere in this codebase. Thresholds are rows in `VitalRangeSetting` entered by the doctor; the system enforces only what it is given (E-12, C-31, REC-3). This constraint is a review item on every pull request touching F-11 or F-13.
+
+---
+
+## 8. Test strategy summary
+
+**Tooling, stated once.** Backend unit: **xUnit + NSubstitute**, with `FluentAssertions`. Backend integration: **xUnit + `WebApplicationFactory<Program>` against SQL Server LocalDB**, database created per test class from migrations and torn down after (never against a developer's dev database). Frontend unit: **Vitest + React Testing Library** (Vitest chosen over Jest for Vite-native config; used consistently across every feature). End-to-end: **Playwright** (chosen over Cypress for first-class multi-browser coverage — Chrome, Edge and WebKit/Safari are a stated BRD compatibility requirement, C-47).
+
+**Coverage map — feature × layer.** `Y` = specs planned; `—` = not applicable; `Blocked` = cannot be specified until the gate clears.
+
+| Feature | BE unit | BE integration | FE unit | E2E | Edge cases covered |
 |---|---|---|---|---|---|
-| F-1 Skeleton | ● | ● | ● | ○ | EC-47, EC-48 |
-| F-2 Shell | ○ | ○ | ● | ● | EC-2, EC-4, EC-5 |
-| F-3 Auth | ● | ● | ● | ● | EC-43, EC-68, EC-70, EC-71 |
-| F-4 Recovery | **Blocked** | **Blocked** | **Blocked** | **Blocked** | EC-74 |
-| F-5 Audit | ● | ● | ● | ● | EC-69 |
-| F-6 ClinicProfile | ● | ● | ● | ● | EC-1, EC-11 |
-| F-7 Patient | ● | ● | ● | ● | EC-12, EC-15, EC-17, EC-20, EC-21, EC-22, EC-24, EC-26, EC-62, EC-63, EC-64 |
-| F-8 Search | ● | ● | ● | ● | EC-7, EC-28, EC-29, EC-62, EC-63 |
-| F-9 Duplicates | ● | ● | ● | ● | EC-27, EC-29, EC-64 |
-| F-10 Archive | ● | ● | ● | ● | EC-30, EC-37 |
-| F-11 Appointments | ● | ● | ● | ● | EC-4, EC-31, EC-40, EC-48 |
-| F-12 Status machine | ● | ● | ● | ● | EC-35, EC-36 |
-| F-13 Draft lifecycle | ● | ● | ● | ● | EC-32, EC-33, EC-39, EC-41, EC-42, EC-45, EC-46, EC-47, EC-51, EC-53, EC-58 |
-| F-14 Vitals | ● | ● | ● | ● | EC-13, EC-19, EC-66 |
-| F-15 Content | ● | ● | ● | ● | EC-3, EC-8, EC-10, EC-14, EC-16, EC-23, EC-65 |
-| F-16 Finalize | ● | ● | ● | ● | EC-19, EC-38, EC-44, EC-58 |
-| F-17 Prescription | ● | ● | ● | ● | EC-3, EC-9, EC-10, EC-11, EC-34, EC-52, EC-55, EC-56, EC-61, EC-62 |
-| F-18 Amendments | ● | ● | ● | ● | EC-34 |
-| F-19 History | ● | ● | ● | ● | EC-5, EC-25, EC-33, EC-39 |
-| F-20 Export | ● | ● | ● | ● | EC-6, EC-55, EC-59, EC-60, EC-67 |
-| F-21 Backup | ● | ● | ● | ● + manual restore | EC-50, EC-54, EC-57 |
-| F-22 Retention | **Blocked** | **Blocked** | **Blocked** | **Blocked** | EC-73 |
+| F-1 shell | Y | Y | Y | Y | — |
+| F-2 auth/session | Y | Y | Y | Y | E-41, E-62, E-65 |
+| F-3 clinic profile | Y | Y | Y | Y | E-1 |
+| F-4 settings | Y | Y | Y | Y | E-12, E-23, E-24 |
+| F-5 registration | Y | Y | Y | Y | E-8, E-11, E-13, E-20, E-21, E-9, E-57, E-60 |
+| F-6 duplicates | Y | Y | Y | Y | E-25, E-26, E-27, E-28, E-30, E-46 |
+| F-7 search | Y | Y | Y | Y | E-2, E-7, E-28, E-59 |
+| F-8 edit/deactivate | Y | Y | Y | Y | E-33 |
+| F-9 appointments | Y | Y | Y | Y | E-3, E-29, E-34, E-35, E-36, E-37, E-38 |
+| F-10 visit lifecycle | Y | Y | Y | Y | E-31, E-39, E-40, E-42, E-43, E-44, E-47, E-49, E-51 |
+| F-11 vitals | Y | Y | Y | Y | E-12, E-18, E-24 |
+| F-12 complaint/diagnosis | Y | Y | Y | via F-14 | E-14, E-19, E-57, E-58 |
+| F-13 medications | Y | Y | Y | via F-14 | E-5, E-17, E-22 |
+| F-14 prescription | Y | Y | Y | Y | E-1, E-5, E-10, E-51, E-52, E-53 |
+| F-15 amendments | Y | Y | Y | Y | E-32, E-39 |
+| F-16 history | Y | Y | Y | Y | E-4, E-16, E-31, E-34 |
+| F-17 audit | Y | Y | Y | Y | E-63 |
+| F-18 export | Y | Y | Y | Y | E-6, E-55, E-56, E-57, E-61 |
+| F-19 keyboard/perf | — | Y | Y | Y | C-40, C-12 |
+| F-20 backup/restore | Blocked | Blocked | Blocked | Blocked | E-48, E-49, E-50, E-54 |
+| F-21 credential recovery | Blocked | Blocked | Blocked | Blocked | C-44 |
 
-**Visible gaps in this map, stated rather than hidden:** F-4 and F-22 have no tests because they have no design. EC-49 (same doctor on two devices) is covered only indirectly by F-13's server-authoritative drafts and has no dedicated spec. EC-18, EC-40, EC-72 and EC-75 are `accepted` in the brainstorm doc and are deliberately untested.
+**Visible gaps, named rather than hidden.** (a) F-20 and F-21 have **no test coverage at any layer** until their gates clear, and they carry four Critical `[DI]` edge cases between them (E-48, E-49, E-50, E-54) — this is the most important row in the table. (b) **E-54 (disk/storage full)** cannot be exercised meaningfully until the deployment model exists; it is currently untestable, not merely untested. (c) F-12 and F-13 have no dedicated E2E spec — they are exercised through F-14's, which is deliberate (they have no standalone user journey) but means an F-14 spec failure masks them.
+
+**Edge cases knowingly untested in Phase 1:** E-64 (shared printer, `accepted` in brainstorm §8.9), E-45 (DST, parked in §11), E-15 and E-16's extreme volumes (asserted by seeded data, not by production-scale load testing).
 
 ---
 
-## 10. Open items
+## 9. Open items
 
-Every `Blocked` and every `Assumption:` from §6, in one place — the single home for these, mirroring the brainstorm doc's parking-lot pattern.
+Every `Blocked` gate and every `Assumption:` from §6, in one place. Items marked **"no `Q-` exists"** are this plan's own findings — they were not raised as open questions in brainstorm §12 and should be added to that agenda.
 
-| # | Item | Type | Feature | OQ | Default being built against | Consequence if the owner answers differently |
+| # | Item | Type | Feature(s) | Source ID | Needed from | Default being built against |
 |---|---|---|---|---|---|---|
-| 1 | Credential recovery path for the single user | **Blocked** | F-4 | OQ-6 | None — no steps written | Design + build once decided. **Go-live gate** (RISK-8) |
-| 2 | Retention period & deletion policy | **Blocked** | F-22 | OQ-8 | None — archive-not-delete stands as interim | Additive job + policy screen; no schema change (RISK-13) |
-| 3 | Vitals exception path | Assumption | F-14 | OQ-1 | D-7 C — value **or** doctor-defined "not recorded" reason | A hard block reinstates the fabrication vector (RISK-3) |
-| 4 | Edit after print / amendment visibility | Assumption | F-18 | OQ-2 | D-1 D — append-only dated amendments | Option C (silent overwrite) must be recorded as an accepted risk with no audit answer |
-| 5 | Acceptable loss window / recovery objective | Assumption | F-13, F-21 | OQ-3 | 5 s autosave debounce; RPO 24 h DB + 5 s typing; 30-day retention | Configuration constant + log-backup interval change only |
-| 6 | Prescription header/footer content | Assumption | F-6, F-17 | OQ-5 | §7.1 field set; clinic name + doctor name mandatory | Additive migration + one print-layout slot |
-| 7 | DOB vs. age | Assumption | F-7 | OQ-7 | D-3 C — optional DOB + age with `AgeCapturedOn` | Mandatory DOB would make walk-in registration harder and invites invented dates |
-| 8 | Appointment scheduling model | Assumption | F-11 | OQ-9 | Simple dated list with optional time; overlaps allowed, same-day warned | **A slot calendar is a different, larger build — re-plan F-11 rather than stretch it** |
-| 9 | Export scope | Assumption | F-20 | OQ-10 | D-6 B+C+F — current view only, confirmed, audited | A full-database export carries the D-6 A privacy consequence explicitly |
-| 10 | Shared PC vs. private device | Assumption | F-3 | OQ-11 | Shared clinic PC (stricter): 10-minute auto-lock, no autofill, no-store | Private device relaxes the idle timer to 60 minutes; nothing else changes |
-| 11 | Audit trail scope | Assumption | F-5 | OQ-12 | R-12's 12 minimal actions | Declining audit costs F-18 its trail; record as an accepted risk (RISK-12) |
-| 12 | Required medication fields / diagnosis mandatory | Assumption | F-15 | OQ-13 | Drug name required; diagnosis warn-not-block (EC-8, EC-23) | Making diagnosis mandatory is a clinical rule and is the doctor's call to set |
-| 13 | Gender value list | Assumption | F-7 | OQ-14 | Configurable lookup incl. "Unspecified" | Seed-data change only, no schema change |
-| 14 | "Recent patients" meaning | Assumption | F-8 | OQ-16 | Last 10 **consulted** | "Recently viewed" needs a new tracking table — **confirm this one early** |
-| 15 | Auth mechanism (cookie vs. JWT) | **New decision, needs ratification** | F-3, §2 | — (not in the BRD or brainstorm doc) | Cookie-based Identity, `HttpOnly`/`Secure`/`SameSite=Strict` | Reasoned in §2 against EC-68/EC-70/EC-71; raised here rather than defaulted silently because it touches security |
-| 16 | Paper-usage baseline (BRD success criterion) | Owner item | — | OQ-15 | Not built against; no feature depends on it | Per B-5, restate as "zero handwritten records after go-live" or drop it |
-| 17 | Duplicate merge in Phase 1 | Deferred | — | OQ-17 | Parking lot **P-1**; archive + pointer is the interim (EC-30) | If pulled forward, it consumes `ArchivedIntoPatientId`, already in the schema |
+| 1 | Deployment model (clinic PC / LAN / cloud) | **Blocker** | F-20 | Q-1 | Owner (policy call) | none — no steps written |
+| 2 | RPO for database backup + who is alerted on failure | **Blocker** | F-20 | Q-12 | Owner, then design+build | none — no steps written |
+| 3 | Credential recovery + lockout for a single user | **Blocker** | F-21 | C-44 — **no `Q-` exists** | Owner (security call) | none — no steps written |
+| 4 | Vitals: may a visit finalize with a recorded reason instead of a value? | Assumption | F-11, F-4 | Q-2 | Owner | mandatory-or-reason, absent stored as null + reason (REC-3, E-18) |
+| 5 | Finalized visits immutable with append-only amendments? | Assumption | F-10, F-15 | Q-3 | Owner | immutable + dated amendments (REC-1, option C) |
+| 6 | Clinic header/footer content and signature image source | Assumption | F-3, F-14 | Q-4 | Owner | ClinicProfile fields per §4; print blocked until setup complete (E-1) |
+| 7 | Walk-ins — can a consultation exist without a booked appointment? | Assumption | F-9 | Q-5 | Owner | yes; appointment auto-created with `Source=WalkIn` (REC-6, option D) |
+| 8 | Hard delete and retention period for patient records | Assumption | F-8 | Q-6 | Owner + legal | no hard delete; deactivate with reason; retention deferred (E-33) |
+| 9 | Is phone required at registration? | Assumption | F-5 | Q-7 | Owner | optional, prompted, profile flagged incomplete (E-20, E-8) |
+| 10 | Is diagnosis required before printing? | Assumption | F-12, F-14 | Q-8 | Owner | optional; prints "Diagnosis: not recorded" (E-19) |
+| 11 | Gender value list | Assumption | F-4, F-5 | Q-9 | Owner | doctor-editable list seeded Female/Male/Other/Not stated (E-23) |
+| 12 | Vitals units and plausibility thresholds | Assumption | F-4, F-11 | Q-10 | Owner (thresholds are the doctor's) | unit in ClinicProfile; thresholds blank by default; soft warnings only (E-12, E-24) |
+| 13 | Export scope | Assumption | F-18 | Q-11 | Owner | visit / patient / date-range only; **no whole-DB export** (REC-10, E-61) |
+| 14 | Patient identity rule + similarity threshold | Assumption | F-6 | Q-13 | Owner + design | name similarity ≥ 0.85 AND (phone OR DOB); warn, never block (REC-2) |
+| 15 | Legal appointment status transitions | Assumption | F-9 | Q-14 | Owner | per E-34/E-35/E-36/E-37 as tabled in F-9 |
+| 16 | How the 2–3 minute target is measured | Assumption | F-19 | Q-15 | Owner | ≤ 30 s system overhead + ≤ 3 min end-to-end on the §5.1 fixture (REC-14) |
+| 17 | DOB vs approximate age at registration | Assumption | F-5 | Q-16 | Owner | DOB when known, else approx age + recorded-on; never bare age (E-9) |
+| 18 | Appointment time model (date+time, duration, slots) | Assumption | F-9 | C-24 — **no `Q-` exists** | Owner | date+time, free times, default 15 min, warn on second same-day (E-29, E-38) |
+| 19 | Search match semantics (substring / fuzzy / ranking) | Assumption | F-7 | C-22, C-35 — **no `Q-` exists** | Owner | substring + digits-only phone incl. last-4; fuzzy fallback on empty result |
+| 20 | Medication required-field subset | Assumption | F-13 | C-31, E-22 — **no `Q-` exists** | Owner | Name + Dosage required; others optional and printed only when present |
+| 21 | Audit trail scope and acceptance | Assumption | F-17 | REC-9, C-48 — **no `Q-` exists** | Owner | six event types per §5.7; append-only |
+| 22 | QuestPDF licence tier for the deployed environment | Assumption | F-14, F-18 | — (this plan's finding) | Owner/legal | Community licence assumed; confirm before go-live |
 
----
-
-## 11. Recommended build sequence (one developer)
-
-1. **Hold the OQ meeting first** — OQ-1 through OQ-8, plus OQ-16 (it has a schema consequence). One hour clears six Blockers and eleven `Needs decision` tags.
-2. F-1 → F-2 → F-3 (skeleton, shell, auth).
-3. F-5 → F-6 (audit and clinic profile — both are dependencies of the consultation).
-4. F-7 → F-8 → F-9 → F-10 (the patient aggregate, complete with its duplicate and lifecycle guards).
-5. **F-13** (the critical path's longest link; start it the moment F-7 lands, before appointments).
-6. F-14 → F-15 → F-16 (the consultation content and its commit point).
-7. F-17 → F-18 → F-19 (prescription, amendments, history).
-8. F-11 → F-12 (appointments; deliberately late because OQ-9 has no converged option and the consultation flow does not depend on it — D-5 C makes the appointment link optional).
-9. F-20 → F-21 (export, backup).
-10. **Release gates before go-live:** F-4 resolved (OQ-6), F-22 policy stated (OQ-8), restore rehearsal signed off (EC-54), print verified on Chrome/Edge/Safari (C-35), TDE and its certificate backup verified.
+**Deferred, not planned (brainstorm §11 is the single home):** duplicate merge tooling, prefill-from-last-visit (option H — its failure mode is a wrong medication on a real prescription, and §11 sequences it after the lifecycle work is stable), medicine master list, structured/coded diagnosis, right-to-erasure workflow, and everything on the BRD's out-of-scope list. The data model does not foreclose any of them — `MergedIntoPatientId` and the append-only `AuditEvent` are the two places that keep those doors open.

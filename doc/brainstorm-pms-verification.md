@@ -1,704 +1,568 @@
-# Patient Management Application — BRD Brainstorm + Edge-Case Verification Review
+# Patient Management Application — Whole-Document BRD Brainstorm + Edge-Case Verification
 
-- **Document under review:** `BRD/Doc_BRD.md`
-- **Review type:** Whole-document brainstorming + edge-case verification pass (refresh; re-derived from the current BRD)
+- **Document under review:** `BRD/Doc_BRD.md` (198 lines, reviewed in full)
+- **Review type:** Large — whole-document brainstorm + nine-category edge-case verification. Refresh: re-derived from the current BRD, not carried over from the previous version of this file.
 - **Date:** 2026-08-20
-- **Scope:** Phase 1 only (single general physician, single clinic)
-- **Status:** Pre-build readiness review. Not implementation design, and not authorisation to build.
+- **Scope of review:** Phase 1 only (one general physician, one clinic)
+- **Status:** Pre-build readiness review. This is brainstorming and analysis — not implementation design, not a spec, and not authorisation to build.
 
 ---
 
 ## 1. Headline
 
-**The BRD's biggest risk is its last line — "Open Questions: None."** The document defines *what* to build, almost never *what happens when it goes wrong*, and then closes the door on that conversation. Behind that door sit **eight build-readiness Blockers** — gaps where a developer cannot build the requirement at all as written, not merely build it differently from a colleague.
+**The BRD describes a product but never describes a record.** It lists what the doctor can enter, and almost never says when that entry becomes permanent, what it is attached to, or what happens when the entry is interrupted. The document then closes with "Open Questions: None," which shuts the door on exactly the conversation that must happen before code is written.
 
-The single largest concrete Blocker: **the consultation has no lifecycle and no save model.** There is no draft state, no moment at which a visit becomes a permanent record, and no rule for editing after a prescription is printed. That gap sits directly under the non-functional requirement "No data loss," which the BRD as written cannot satisfy. Close second: **patients have no identity rule**, so duplicate records and split clinical histories are a matter of *when*, not *if*. Newly surfaced in this pass: **"web-based access" never states a deployment model**, and "encryption at rest" plus "regular automated backups" are unbuildable-as-written until it does.
+**Biggest single gap: the consultation has no lifecycle and no commit model.** There is no draft state, no defined moment when a visit becomes a permanent clinical record, no rule for editing after a prescription has been printed and handed to a patient, and no named entity ("visit") linking vitals, complaints, diagnosis, medications and the appointment together. This sits directly beneath the non-functional requirement **"No data loss,"** which the BRD as written cannot satisfy or test.
 
-**Top pick (R-1):** define the consultation as a **continuously autosaved draft, explicitly finalized at print**, with finalized visits immutable and corrections appended as dated amendments. It converts "no data loss" from a slogan into a testable property and costs the doctor zero extra clicks against the 2–3 minute target.
+**Close behind:** patients have **no identity rule** (duplicates are a matter of when, not if); the **prescription header has no home** (nothing in the BRD creates clinic/doctor settings, yet the printed output requires them); and **"web-based access" never names a deployment model**, which leaves "encryption at rest," "automated backups," and the whole offline/uptime question unbuildable as written.
 
-**Data integrity:** the BRD as written is exposed to all four failure modes simultaneously — **Duplicate** (no patient identity rule), **Orphan** (patients deletable while visits reference them; appointment status with no link to the visit that justifies it), **Mutable history** (no amendment or audit concept, so a finalized prescription can silently change meaning after it was handed to a patient), and **Silent loss** (no save model, no stated recovery objective, no visible backup status). Every finding below is scored against these four.
+**Top pick — REC-1:** define the consultation as a **continuously autosaved draft that is explicitly finalized at print**, with finalized visits immutable and later corrections appended as dated amendments. It turns "no data loss" into a testable property, gives the appointment state machine something real to hang "Completed" on, and costs the doctor **zero extra clicks** against the 2–3 minute target.
+
+**Data integrity (headline level):** the BRD as written is exposed to all four failure modes at once — **Duplicate** (no patient identity rule, no merge concept), **Orphan** (no visit entity; appointments and clinical data have no defined parent; patient deletion undefined), **Mutable history** (no amendment or audit concept, so a prescription can silently change meaning after the patient has walked out with the paper copy), and **Silent loss** (no save model, no recovery objective, no backup-failure signal). Every finding below is scored against these four.
+
+**Counts:** 49 coverage rows — **10 Blockers · 17 Needs decision · 22 Ready**. 66 edge cases swept, of which **22 are "corrupts data or loses a record"** and are separated from the merely ugly in §8 and §14.
 
 ---
 
 ## 2. Frame
 
-The decision this review supports: **is `BRD/Doc_BRD.md` complete enough to hand to a development team, and if not, which gaps must close before build starts?**
+The decision this review supports: **is `BRD/Doc_BRD.md` complete enough to hand to a development team, and if not, exactly which gaps must close first — and at what cost to close each?**
 
-I read it as a Phase 1 build-authorisation document rather than a vision doc. No clarifying question is needed — both readings produce the same finding list; the vision reading only lowers urgency, not content.
+I read this as a build-authorisation document, not a vision statement. No clarifying question is needed: under the vision reading the finding list is identical and only the urgency drops, so proceeding is safe either way.
 
 ---
 
-## 3. Rubric (stated once; every rated table below uses it)
+## 3. Rubric — stated once, used by every rated table below
 
-**Clarity verdict** — can a developer read this and build it as written?
-- **Clear** — unambiguous; two developers would build the same thing.
-- **Ambiguous** — buildable, but two developers would reasonably build it differently.
-- **Missing detail** — the BRD does not state a decision the build requires.
-- **Contradiction** — conflicts with another statement in the BRD, or with clinic reality.
+**Clarity verdict** — could a developer build this as written?
+| Value | Meaning |
+|---|---|
+| **Clear** | Unambiguous. Two developers build the same thing. |
+| **Ambiguous** | Buildable, but two developers would reasonably build it differently. |
+| **Missing detail** | The BRD does not state a decision the build requires. |
+| **Contradiction** | Conflicts with another BRD statement, or with how a real clinic operates. |
 
-**Build-readiness** — does the gap actually stop work? (Independent of clarity.)
-- **Ready** — build as-is, or with an obvious low-risk default that this review names.
-- **Needs decision** — buildable only after the product owner makes one explicit, nameable call.
-- **Blocker** — cannot be built at all: a missing entity, a safety issue, or a contradiction that breaks another requirement.
+**Build-readiness** — does the gap actually stop work? *(Independent of clarity.)*
+| Value | Meaning |
+|---|---|
+| **Ready** | Build as-is, or with an obvious low-risk default that this review names. |
+| **Needs decision** | Buildable only after the owner makes one explicit, nameable call. |
+| **Blocker** | Cannot be built at all: missing entity, safety issue, or a contradiction that breaks another requirement. |
 
-*An item can be `Ambiguous` and still `Ready` (pick a sane default, state the assumption). An item can be perfectly `Clear` and still a `Blocker` — see C-25, a flawlessly worded requirement with no entity to hang it on. **Build-readiness, not clarity, drives priority** in §9 and §10.*
+An item can be `Ambiguous` and still `Ready` (name a sane default, record the assumption). An item can be perfectly `Clear` and still a `Blocker` — see **C-32**, a well-written prescription requirement with no settings entity to hang its header on. **Build-readiness, not clarity, drives priority** in §9 and §10.
 
-**Data-integrity exposure** — the four failure modes, applied to every idea and finding:
-- **Duplicate** — two records can describe the same real-world fact.
-- **Orphan** — a record can lose its parent, or point at something that no longer exists.
-- **Mutable history** — a recorded fact can silently change meaning afterwards, with no trail.
-- **Silent loss** — a write can be lost between "the doctor typed it" and "it's on disk", with no signal.
-- **None** — no integrity exposure.
+**Data-integrity exposure** — the four failure modes, applied to every idea and every finding:
+| Value | Meaning |
+|---|---|
+| **Duplicate** | Two records can describe the same real-world fact. |
+| **Orphan** | A record can lose its parent, or point at something that no longer exists. |
+| **Mutable history** | A recorded fact can silently change meaning later, with no trail. |
+| **Silent loss** | A write can be lost between "the doctor typed it" and "it's on disk," with no signal. |
+| **None** | No integrity exposure. |
 
 **Likelihood** — **High:** expected in normal single-clinic use within the first month (roughly weekly or more) · **Med:** plausible within the first year · **Low:** needs unusual circumstances; may never occur in this clinic's lifetime.
 
-**Impact** — **Critical:** silent data loss or corruption; a clinical record or prescription attributed to the wrong patient; an unrecoverable record; or patient health data exposed outside the clinic · **Major:** blocks or stalls a live consultation, forces re-entry, or produces a record the doctor cannot trust without a second source · **Minor:** cosmetic or trivially recoverable; no record affected, no time lost beyond seconds.
+**Impact** — **Critical:** silent data loss or corruption; clinical data or a prescription attached to the wrong patient; an unrecoverable record; or patient health data exposed outside the clinic · **Major:** blocks or stalls a live consultation, forces re-entry, or produces a record the doctor cannot trust without a second source · **Minor:** cosmetic or trivially recoverable; no record affected, seconds of time at most.
 
-**Effort** (sequencing only, not estimation) — **S:** under a day · **M:** two to five days · **L:** over a week, or a product decision plus build.
+**Effort** (sequencing only — not an estimate) — **S:** under a day · **M:** two to five days · **L:** over a week, or a product decision plus a build.
 
 **Phase** — **1:** build now · **later:** parking lot (§11) · **accepted:** knowingly unhandled, risk absorbed.
 
-**Cost to resolve** (open questions, §12) — **Policy call:** decidable in a meeting, no design work · **Design effort:** needs a designed flow or model change first.
+**Cost to resolve** (open questions, §12) — **Policy call:** the owner can settle it in a meeting · **Design + build:** requires real design and engineering work, not just a decision.
 
 ---
 
-## 4. BRD coverage map
+## 4. Coverage map — every BRD section, both labels
 
-Every row carries two independent labels — clarity and build-readiness — plus its data-integrity exposure. Sections containing more than one distinct decision are split into separate rows, because a section can be half-Ready and half-Blocker.
+### 4.1 Framing sections (lines 1–82)
 
-| ID | BRD section / decision | Clarity verdict | Build-readiness | Gap or tension | Data integrity |
+| ID | BRD line/section | Clarity | Build-ready | Integrity | Finding |
 |---|---|---|---|---|---|
-| C-1 | Product Goal | Clear | Ready | — | None |
-| C-2 | Users — "General Physician (Single User)" | Ambiguous | Needs decision | States an *access* model, never a *device* model. Shared clinic PC vs. private laptop changes session timeout, auto-lock, autofill and cache requirements | None (drives exposure, not integrity) |
-| C-3 | Problem Statement | Clear | Ready | Well-drawn; the four listed pains map cleanly to requirements | None |
-| C-4 | Scope — "Web-based access (browser-based system)" | Missing detail | Needs decision | **No deployment model.** Hosted service, clinic-server, or local machine? This one unstated decision determines what "encryption at rest" (C-36), "automated backups" (C-33), network-drop behaviour (EC-50) and export exposure (C-6) actually mean. Highest-leverage unnamed decision in the document | Silent loss — backup and recovery cannot be specified until this is answered |
-| C-5 | Scope — "Basic search functionality" | Ambiguous | Ready | Default worth naming: case/diacritic-insensitive substring on name, digits-only normalised match on phone, type-ahead. This one-liner is load-bearing — search is the duplicate-prevention mechanism (D-2) | Duplicate — weak search means the doctor re-registers instead of finding |
-| C-6 | Scope — "Data export (CSV/PDF)" | Missing detail | Needs decision | No export scope, filename convention, warning, audit or CSV escaping. Highest data-egress risk in the document, expressed in three words | None internally; privacy exposure (§8.9) |
-| C-7 | Out of Scope | Clear | Ready | Unusually disciplined and specific. Keep exactly as is | None |
-| C-8 | Success — "consultation record within 2–3 minutes" | Contradiction | Needs decision | One flat number for a workflow with 12+ required inputs. See B-1 | Silent loss — a target that pressures the doctor encourages abandoning records mid-entry |
-| C-9 | Success — "search and history retrieval within 2–5 seconds" vs. NFR "page load < 2s" | Contradiction | Ready | Two different numbers for overlapping operations, and neither is a keystroke budget. Default: adopt the tighter figure, add a type-ahead budget. See B-6 | Duplicate — slow search pushes the doctor past the near-match check |
-| C-10 | Success — "80% reduction in paper usage" | Ambiguous | Needs decision | No baseline, no denominator — and the product's headline output is printed paper. See B-5 | None |
-| C-11 | Success — "smooth generation and printing", "high usability with minimal training" | Ambiguous | Needs decision | Both are unfalsifiable as written; they will be scored charitably at sign-off. Replace with countable proxies (see B-5 pattern): e.g. prescription renders correctly on all three supported browsers; doctor completes a full consultation unaided after one walkthrough | None |
-| C-12 | Patient Management — fields (Name, Age/DOB, Gender, Contact) | Ambiguous | Needs decision | "Age / DOB" — which is stored? Both? Derived? Which fields are required? No field lengths. No gender value list. "Contact details" undefined (phone only? address? email?) | Mutable history — a bare "45" recorded in 2026 silently means something else in 2029 |
-| C-13 | Patient Management — identity and uniqueness | Missing detail | **Blocker** | No uniqueness rule, no duplicate policy, no near-match check. Nothing prevents the same human existing twice with half a history each | Duplicate — the primary duplicate vector in the product |
-| C-14 | Patient Management — "Add, edit, and view" with no delete/archive rule | Missing detail | **Blocker** | No record lifecycle. If delete exists, deleting a patient with visits orphans clinical records; if it does not exist, the BRD must say so | Orphan + Mutable history — visits detached from their patient; edited demographics silently rewrite past prescriptions |
-| C-15 | Patient search by name or phone | Ambiguous | Ready | Partial vs. full phone match, prefix vs. substring, families sharing one number. Default per C-5 | Duplicate |
-| C-16 | Appointment Management — "Schedule appointments" | Missing detail | Needs decision | No slot model, no duration, no double-booking rule, no working hours. Owner must say whether this is a time-slot calendar or a simple dated list | Duplicate — two appointments for one patient on one day, with no rule |
-| C-17 | Appointment Management — four statuses | Missing detail | Needs decision | Statuses listed, transitions never defined. No rule for a Scheduled date that has passed. See §7.2 | Mutable history — status is clinical-adjacent and currently rewritable with no trail |
-| C-18 | Appointment ↔ consultation relationship | Missing detail | **Blocker** | The BRD never links an appointment to the consultation it produces. "Completed" therefore has no source of truth; the daily list and visit history can never reconcile | Orphan — a Completed appointment with no visit, and a visit with no appointment, are both legal today and indistinguishable from error |
-| C-19 | Consultation Workflow — lifecycle and save model | Missing detail | **Blocker** | No draft state, no finalize event, no save semantics, no rule for editing after print. Cannot be built against "No data loss" as written | Silent loss + Mutable history — the largest single exposure in the document |
-| C-20 | Vitals Capture — "(Mandatory)" | Contradiction | **Blocker** | Mandatory with no exception path. When a vital genuinely cannot be taken, the doctor abandons the record or invents a number. Safety issue. See B-2 | Silent loss (abandoned record) or fabricated clinical values — invisible corruption |
-| C-21 | Vitals — units, formats, plausible ranges | Missing detail | Ready | Default worth naming: BP as two numeric fields, temperature as value + unit selector, pulse numeric; plausibility bounds configured by the doctor, blank until set | Mutable history — free-text vitals cannot be compared across visits |
-| C-22 | Complaints — free text | Missing detail | Ready | No length limit, no encoding statement, no paste handling. Default: stated max length with counter, full Unicode, formatting stripped on paste | Silent loss — text clipped at print or export is invisible clinical loss |
-| C-23 | Diagnosis — "Record diagnosis notes" | Missing detail | Needs decision | Never marked mandatory or optional. A prescription can therefore print with no diagnosis and the BRD does not say whether that is acceptable | None directly; record-completeness risk |
-| C-24 | Medication fields (name, dosage, frequency, duration, instructions) | Ambiguous | Needs decision | Which of the five are required? Maximum count? Ordering on the printed page? | None directly; incomplete-record risk |
-| C-25 | Printable prescription — "Clinic/doctor header" | Clear | **Blocker** | Perfectly clear requirement with **no entity to hang it on.** The BRD never says where clinic name, doctor name, registration number, address or signature block come from. No clinic-profile concept exists anywhere in the document | None; but the Phase 1 headline deliverable cannot be rendered at all |
-| C-26 | Prescription — "Patient details" contents | Missing detail | Ready | Which fields print? Name and age are obvious; phone and address on a document handed to a patient are a deliberate choice, not a default. Default: name, age/DOB, gender, visit date, patient reference — no phone | None; minor exposure |
-| C-27 | Prescription issuance, reprint and amendment | Missing detail | **Blocker** | Printing is never recorded as an event. No reprint policy, no amendment policy, no snapshot. "What did I actually give this patient, and when" is unanswerable | Mutable history — the paper in the patient's hand and the record on screen can diverge with nothing to reconcile them |
-| C-28 | Patient History — "Filter by date" | Ambiguous | Ready | Single date or range? Are drafts and cancelled appointments visible? Default: visit-date range; drafts shown and clearly flagged | Silent loss — a draft hidden from history is a record nobody knows exists |
-| C-29 | Search & Navigation — "View recent patients" | Ambiguous | Ready | Recently *viewed* or recently *consulted*? How many? Default: last 10 consulted | None |
-| C-30 | Search & Navigation — "Easy navigation between patient profile and visits" | Ambiguous | Ready | Intent clear, no acceptance criterion. Default: any visit reachable from the profile in one click and vice versa, with the patient identity pinned on screen throughout (also serves EC-30) | None |
-| C-31 | NFR Usability | Ambiguous | Ready | "Fast data entry" stated; keyboard-first is implied by the 2–3 minute target but never required. Make it explicit — it is the actual lever on the target | None |
-| C-32 | NFR Performance — page load < 2s | Clear | Ready | Testable. Reconcile with C-9 | None |
-| C-33 | NFR Reliability — "No data loss", "Regular automated backups" | Contradiction | Needs decision | Unachievable as an absolute, untestable as written. "Regular" undefined; no retention window; no restore verification; blocked behind C-4. See B-3 | Silent loss — a backup nobody has restored is not a backup |
-| C-34 | NFR Security — "Secure login (single user authentication)" | Missing detail | Needs decision | No session timeout, no lockout policy, no auto-lock, no statement about shared machines | None directly; exposure risk |
-| C-35 | NFR Security — credential recovery | Missing detail | **Blocker** | Single user means there is no second account to reset the password. With no recovery path, one forgotten password locks the clinic out of every record it owns, permanently | Silent loss — total and unrecoverable |
-| C-36 | NFR Security — "Data encryption (at rest and in transit)" | Missing detail | Needs decision | In transit is unambiguous. At rest means entirely different work for a hosted database vs. a clinic PC, and is undefined until C-4 is answered. Also silent on whether exports and generated PDFs are covered — they are the copies that leave | None; exposure |
-| C-37 | Audit trail | Missing detail | Needs decision | The BRD is silent on audit entirely. For health records that silence is a gap, not a simplification — but whether it lands in Phase 1 is the owner's call | Mutable history — no answer to "who changed what, when" |
-| C-38 | Retention and deletion policy | Missing detail | Needs decision | Silent. Right-to-be-forgotten vs. required medical-record retention is jurisdiction-specific and I will not invent one | Mutable history / Orphan, depending on the policy chosen |
-| C-39 | NFR Scalability — "single clinic, moderate volume" | Clear | Ready | Appropriately unambitious. Do not over-engineer against it | None |
-| C-40 | NFR Compatibility — Chrome, Edge, Safari | Ambiguous | Ready | Print rendering differs materially across these three, and printing is a Phase 1 deliverable. Default: verify print output on all three before go-live | Silent loss — content clipped by a browser's print engine is invisible |
-| C-41 | Open Questions — "None (all major product decisions defined for Phase 1)" | Contradiction | Needs decision | This review found 18 decisions the BRD does not make, 8 of them Blockers. See B-4 | All four — undecided integrity rules get decided implicitly, in code |
+| C-1 | Product Goal (L5–7) | Clear | Ready | None | Good framing. "Efficiently" and "accurate" are not testable, but Success Criteria carry that load. |
+| C-2 | "General Physician (Single User)" (L14) | Ambiguous | Needs decision | Mutable history | "Single user" is doing three different jobs: one login, one person, one concurrent session. Only the first is stated. Two browser tabs, and a locum covering a sick day, are both unaddressed. |
+| C-3 | Secondary users: None (L17) | Clear | Ready | None | Consistent with scope boundary. |
+| C-4 | Stakeholders (L19–22) | Clear | Ready | None | No gap. |
+| C-5 | Problem Statement (L26–34) | Clear | Ready | None | Well-argued. "Risk of lost or incomplete records" is the paper problem the BRD must not reproduce digitally — see C-42. |
+| C-6 | Scope: "Web-based access (browser-based system)" (L42) | Missing detail | **Blocker** | Silent loss | **No deployment model.** Clinic PC? LAN server? Public cloud? This single unstated decision determines encryption-at-rest (C-45), backup destination (C-43), session security (C-44), whether an ISP outage stops the clinic (C-9), and whether "two tabs" is even possible. Nothing downstream can be designed without it. |
+| C-7 | Scope: "Data export (CSV/PDF)" (L52) | Ambiguous | Needs decision | None (privacy risk) | No granularity (one patient? one visit? whole database?), no trigger, no destination. Every export is an unencrypted PHI copy leaving the app's control. |
+| C-8 | Out of Scope list (L58–69) | Clear | Ready | None | Well-drawn and respected throughout this review. |
+| C-9 | Out of scope "Offline functionality" (L65) vs NFR "No data loss" (L181) | **Contradiction** | Needs decision | Silent loss | If deployed off-site, a dropped connection mid-consultation means either a stalled clinic or lost typing. "No offline" is defensible only under a local deployment (C-6), or by accepting that the clinic stops when the network does. |
+| C-10 | Out of scope "Follow-up alerts/reminders" (L69) | Clear | Ready | None | Consistent — but the prescription's own **Duration** field creates a follow-up expectation the product will not meet. Accepted risk, named in §11. |
+| C-11 | Success: consultation record in 2–3 min (L75) | Ambiguous | Needs decision | None | Clock start and stop points undefined, and the content of a "typical" consultation is unspecified. Untestable as written. See §5.1. |
+| C-12 | Success: search/history in 2–5 s (L76) | Ambiguous | Ready | None | No percentile, no dataset size. Default worth naming: p95 ≤ 2 s at 5,000 patients / 25,000 visits, measured from keystroke to rendered result. |
+| C-13 | Success: 80% reduction in paper (L77) | Ambiguous | Ready | None | No baseline is recorded anywhere, and the product's flagship output is a **printed** prescription. Measures the wrong thing — see §5.5. Not a build gate. |
+| C-14 | Success: "Smooth generation and printing" (L78) | Ambiguous | Ready | None | "Smooth" is unmeasurable. Default: prescription preview renders ≤ 1 s and fits one page for a defined typical visit. |
+| C-15 | Success: successful CSV/PDF export (L79) | Clear | Ready | None | Testable once C-7 defines what "data" means. |
+| C-16 | Success: "minimal training required" (L80) | Ambiguous | Ready | None | Fine as intent. Default acceptance: the doctor completes an unassisted consultation on first use after a ≤10-minute walkthrough. |
 
-**Blocker index (drives §9 and §10 ordering):** C-13, C-14, C-18, C-19, C-20, C-25, C-27, C-35. Nothing else in the document stops work outright.
+### 4.2 Functional Requirements — Patient Management (lines 86–93)
 
-**Coverage tally:** 41 rows — 8 Blocker · 14 Needs decision · 19 Ready. Clarity: 8 Clear · 13 Ambiguous · 16 Missing detail · 4 Contradiction. Note the divergence between the two columns: three of the eight Clear rows are fine prose, and one of them (C-25) is a Blocker.
+| ID | BRD line/section | Clarity | Build-ready | Integrity | Finding |
+|---|---|---|---|---|---|
+| C-17 | "Add, edit, and view patient details" (L87) | Missing detail | **Blocker** | Mutable history, Orphan | **No delete or deactivate**, and no rule about editing. Can a patient registered in error be removed? What happens to their visits? Can a name or DOB be corrected after a prescription was printed with the old value — and does the printed record then disagree with the stored record? |
+| C-18 | Field: Name (L89) | Missing detail | Needs decision | Duplicate | One field or first/last? Mononyms (no surname) are common and a required-surname design rejects real patients. No length or script rule. Name is currently the primary human identifier, which makes this a duplicate-risk field, not a cosmetic one. |
+| C-19 | Field: "Age / DOB" (L90) | Ambiguous | Needs decision | **Mutable history** | The slash hides an unmade decision. Storing **age** is storing a fact that silently becomes wrong — a record reading "34" gives no way to know if that meant 2026 or 2019. Storing **DOB** is correct but often unknown in this setting. Recommended: DOB when known, else `approx_age` + `age_recorded_on`, never a bare mutable age. |
+| C-20 | Field: Gender (L91) | Missing detail | Needs decision | None | No value list. Free text guarantees "M"/"Male"/"male" in the same column and breaks any later filtering; a fixed list needs the owner to choose it. Pure policy call. |
+| C-21 | Field: "Contact details" (L92) | Missing detail | **Needs decision** | Duplicate | Undefined shape (phone? multiple? address? email?), and **not stated as mandatory** — yet C-22 makes phone a primary search key. A patient with no phone is invisible to half the search. Also: one phone shared across a family is normal, so phone is an identifier for a *household*, not a person. |
+| C-22 | "Search patients by name or phone number" (L93) | Ambiguous | Needs decision | None | Prefix or substring? Fuzzy? Last-4-digits match (which is what a doctor actually remembers)? Result ranking undefined. Interacts with C-21: the search key is optional at registration. |
+| C-23 | *Absent:* patient uniqueness / identity rule | Missing detail | **Blocker** | **Duplicate** | The BRD never says what makes two patients the same person. With no duplicate warning at registration and no merge path, one patient's history will split across two records — and the doctor will make decisions from half a history without knowing it. This is the second-most consequential gap in the document. |
+
+### 4.3 Functional Requirements — Appointment Management (lines 98–104)
+
+| ID | BRD line/section | Clarity | Build-ready | Integrity | Finding |
+|---|---|---|---|---|---|
+| C-24 | "Schedule appointments" (L98) | Missing detail | **Blocker** | Orphan | No time model at all: date only or date+time? Fixed slots or free times? Default duration? **Are walk-ins supported** — i.e. can a consultation exist without an appointment? In a small GP clinic most patients walk in, so this is the common case, not the exception. |
+| C-25 | "View daily appointment list" (L99) | Missing detail | Ready | None | Default day, sort order, and empty state unspecified. Low-risk defaults: today, sorted by time then creation, with an explicit empty state that offers "start a walk-in consultation." |
+| C-26 | Status: Scheduled / Completed / Cancelled / No-show (L100–104) | Missing detail | **Blocker** | **Mutable history** | Four states, **zero transitions defined.** Cancelled → Completed? No-show → Completed when the patient turns up 40 minutes late? Completed → Scheduled (an undo that silently detaches a real consultation)? Nothing says what happens to yesterday's still-Scheduled rows at midnight, or whether status changes leave any trace. |
+| C-27 | *Absent:* the **visit / consultation** entity and its link to the appointment | Missing detail | **Blocker** | **Orphan** | Vitals, complaints, diagnosis, medications, prescription and history all implicitly belong to something the BRD never names. Without it, "Completed" is a label nobody can verify, patient history has nothing to list, and clinical rows have no parent. This is the structural root of C-17, C-26, C-33 and C-42. |
+
+### 4.4 Functional Requirements — Consultation Workflow (lines 108–142)
+
+| ID | BRD line/section | Clarity | Build-ready | Integrity | Finding |
+|---|---|---|---|---|---|
+| C-28 | Vitals "(Mandatory)": Temperature, BP, Pulse (L110–114) | **Contradiction** | **Blocker** | Silent loss | **Mandatory with no escape hatch will be defeated, not obeyed.** Broken cuff, uncooperative toddler, patient who refuses, a two-minute repeat-prescription visit. A hard block sends the doctor to paper or to junk values (`0/0`, `999`) that pollute history forever. Also missing: **units** (°C/°F, kPa/mmHg), format for BP (systolic/diastolic as one field or two), and whether any plausibility range exists. See §5.2. |
+| C-29 | Complaints, free text (L119) | Missing detail | Ready | None | No length cap, no paste handling, no structure. Defaults: soft cap ~2,000 chars with a visible counter, hard cap ~10,000, trim whitespace, preserve line breaks. |
+| C-30 | "Record diagnosis notes" (L124) | Missing detail | Needs decision | None | Mandatory or optional is unstated — and it directly governs whether a prescription may be printed with a blank diagnosis, which is a records-quality question the owner must answer, not the developer. |
+| C-31 | Medication: Name, Dosage, Frequency, Duration, Instructions (L129–134) | Missing detail | Needs decision | Duplicate | All free text with no medicine master, so "Amoxicillin", "amoxycillin" and "AMOX 500" become three unrelated strings and history search is unreliable. Field formats undefined (is Dosage "500 mg" or number+unit?). Zero-medication consultations (advice only) are not addressed. A typo guard (5 vs 50 mg) is worth raising, but **any range rule is the doctor's to define — the system enforces it, this review does not author it.** |
+| C-32 | Printable prescription: header, patient details, vitals, diagnosis, medications, footer/signature (L136–142) | **Clear** | **Blocker** | Mutable history | A well-written requirement with **nothing to hang it on**: no BRD section creates clinic name, address, doctor name, registration number, or signature image. There is also no prescription identity (number/date stamp), no reprint rule, and no page-overflow behaviour. Textbook `Clear` + `Blocker`. |
+
+### 4.5 Functional Requirements — History, Search, Export (lines 146–168)
+
+| ID | BRD line/section | Clarity | Build-ready | Integrity | Finding |
+|---|---|---|---|---|---|
+| C-33 | Patient History: previous visits, vitals, complaints, diagnosis, prescriptions (L147–152) | Ambiguous | Ready | Orphan | Ordering unspecified (newest-first is the obvious default). Unstated: do **unfinished drafts** appear in history? They must be visibly distinct from finalized visits, or the doctor reads an abandoned draft as a real record. |
+| C-34 | History: "Filter by date" (L153) | Ambiguous | Ready | None | Single date, range, or preset? Inclusive bounds? What renders when the filter matches nothing? Default: inclusive range picker with presets, plus an explicit empty state. |
+| C-35 | "Quick patient search" (L158) | Ambiguous | Ready | None | Overlaps C-22; needs one search definition, not two. Debounce and minimum query length unspecified. |
+| C-36 | "View recent patients" (L159) | Missing detail | Ready | None (privacy risk) | "Recent" by what — viewed, or consulted? How many? Persisted across sessions? On a screen left unlocked between patients, this list is a standing PHI display. |
+| C-37 | "Easy navigation between patient profile and visits" (L160) | Ambiguous | Ready | Silent loss | Navigating away mid-consultation is the highest-frequency data-loss path in the product, and the BRD does not mention unsaved-work protection anywhere. |
+| C-38 | Export as CSV (L165–167) | Missing detail | Needs decision | None (privacy + integrity of output) | Unaddressed: commas/newlines/quotes inside complaint text splitting rows; **formula injection** where a field beginning `=`, `+`, `-` or `@` executes when opened in Excel; encoding for non-Latin names; and the file landing unencrypted in Downloads. |
+| C-39 | Export as PDF (L168) | Ambiguous | Ready | None | Same content question as C-7. Failure path (generation fails after the doctor clicked Export) unspecified. |
+
+### 4.6 Non-Functional Requirements + closing (lines 171–198)
+
+| ID | BRD line/section | Clarity | Build-ready | Integrity | Finding |
+|---|---|---|---|---|---|
+| C-40 | Usability: "Simple, minimal UI optimized for fast data entry" (L173–174) | Ambiguous | Needs decision | None | The BRD never says **keyboard-driven**, never sets a field-count or click budget, and never names a target device (laptop? desktop with a real keyboard? tablet?). Without those, "optimized for fast entry" cannot be tested against C-11. |
+| C-41 | Performance: page load < 2 s; "fast search" (L176–178) | Ambiguous | Ready | None | No percentile, no network assumption, no data volume. "Fast" duplicates C-12 loosely; pick one number and use it in both places. |
+| C-42 | Reliability: **"No data loss"** (L180–181) | Missing detail | **Blocker** | **Silent loss** | An absolute with no mechanism behind it. No autosave, no save model, no recovery point objective, no crash-recovery behaviour. As written it is unbuildable and untestable — it is a wish, and it is the wish this whole product depends on. |
+| C-43 | Reliability: "Regular automated backups" (L182) | Missing detail | Needs decision | Silent loss | Frequency, destination, retention, encryption, and **whether anyone is told when a backup fails** are all unstated. A silently failing backup is worse than no backup, because it buys false confidence. Restore has never been mentioned at all — an untested restore is not a backup. |
+| C-44 | Security: "Secure login (single user authentication)" (L184–185) | Missing detail | Needs decision | None | With exactly one user there is **no one to reset the password** and no one to unlock a locked-out account. Session timeout is unaddressed and directly collides with a consultation in progress (E-41). Password policy, lockout, and recovery all need a named answer. |
+| C-45 | Security: "Data encryption (at rest and in transit)" (L186) | Ambiguous | Needs decision | None | Meaningless until C-6 fixes deployment: on a clinic PC "at rest" is disk encryption plus key custody; in cloud it is storage encryption plus TLS. Backups (C-43) and exports (C-38) are the two copies most likely to escape whatever is chosen. |
+| C-46 | Scalability: "single clinic, moderate patient volume" (L188–189) | Ambiguous | Ready | None | "Moderate" is unbounded. Name a number so nobody over-engineers: e.g. ≤40 consultations/day, ≤6,000 patients and ≤30,000 visits over five years. That sizing explicitly rules out distributed architecture. |
+| C-47 | Compatibility: Chrome, Edge, Safari (L191–192) | Ambiguous | Ready | None | No minimum versions, and **print rendering differs materially between Safari and Chrome** — which matters because the printed prescription is the product's main physical output. Firefox is excluded without comment. |
+| C-48 | *Absent:* audit trail, data retention, patient consent | Missing detail | Needs decision | **Mutable history** | Nothing records what was changed and when. For prescriptions this is the difference between "the record says X" and "the record can be shown to have always said X." Retention period and any right-to-erasure stance are also absent, and they conflict by nature with medical-record retention obligations. |
+| C-49 | "Open Questions: None (all major product decisions defined)" (L196–198) | **Contradiction** | **Blocker** (process) | — | This review found 10 build Blockers and 17 decisions the owner still owes the team. The line is not merely inaccurate; it actively discourages the pre-build conversation that would surface them. Replace with the §12 list. |
+
+> **Note:** IDs are renumbered relative to the previous version of this file; when comparing across versions, cite by BRD line number, not by C-ID.
 
 ---
 
 ## 5. Challenging the BRD
 
-Each item states what the BRD says, why it may not hold, and what I would put in its place. These are findings for the owner to accept or reject — not edits I have made.
+Each item states what the BRD says, why it may not hold, and what I would put in its place. These are findings for the owner to accept or reject — not substitutions I have made.
 
-### B-1 — The 2–3 minute consultation target vs. the mandatory workflow
-**BRD says:** "Doctor can complete a consultation record within 2–3 minutes", with mandatory vitals plus complaints, diagnosis and medications.
-**Why it may not hold:** one flat number for a workflow with at least twelve required inputs (3 vitals + complaints + diagnosis + 5 fields per medication). A single-medication visit is achievable with keyboard-first entry. A three-medication visit is not — and the target will then read as a software failure when it is a metric failure. It also silently assumes the doctor types rather than dictating or writing while talking.
-**What I would put in its place:** *median* consultation record ≤ 3 minutes for a one-to-two-medication visit, measured from opening the consultation to finalizing it, with no cap stated for complex visits — plus an explicit **keyboard-only completion path** requirement, which is the actual lever that makes any number reachable.
-**Data integrity:** Silent loss — a target that pressures the doctor produces abandoned half-entered consultations, which is exactly what C-19 has no answer for.
+### 5.1 Challenging the BRD: the 2–3 minute consultation target
+**BRD says (L75):** "Doctor can complete a consultation record within 2–3 minutes."
+**Why it may not hold:** the target measures the wrong thing. A visit with three vitals, a two-line complaint, a diagnosis and three medications is roughly 250–400 characters of typing; at a clinician's realistic keyboard speed that alone approaches or exceeds two minutes, before the software does anything at all. A team can hit 2–3 minutes and still ship a slow app, or miss it while shipping a fast one, because the number is dominated by typing, not by the product.
+**Instead:** split it. **(a) System overhead ≤ 30 s** — the total of navigation, form transitions, saves, and prescription render for one visit, measured by instrumentation; this is the number the team controls and can regress-test. **(b) End-to-end ≤ 3 min** for a defined "typical visit" fixture (3 vitals, ≤200-char complaint, ≤100-char diagnosis, 2 medications), used as an acceptance test, not a build target.
 
-### B-2 — "Mandatory" vitals with no exception path
-**BRD says:** vitals capture is mandatory for every consultation.
-**Why it may not hold:** ordinary clinic situations exist where a vital genuinely cannot be taken — equipment unavailable, a distressed or uncooperative patient, a quick review visit. A hard block leaves two outcomes: abandon the record (data loss, the exact thing the BRD forbids), or type a plausible fake number (data corruption, which is worse because it is invisible). Both are worse than the missing value the block was meant to prevent.
-**What I would put in its place:** keep "mandatory" in the sense that a vital **cannot be silently skipped** — the doctor enters a value *or* selects an explicit "not recorded" reason from a short list the doctor defines. History and the printed prescription then read "BP: not recorded" rather than a blank. Cost against the 2–3 minute target: zero on the normal path, one keystroke on the exception path.
-**Data integrity:** removes a fabricated-value corruption vector; "not recorded — cuff unavailable" is a durable recorded fact, whereas a blank is an ambiguity someone will misread years later.
+### 5.2 Challenging the BRD: "Mandatory" vitals
+**BRD says (L110–114):** temperature, BP and pulse are mandatory for every consultation.
+**Why it may not hold:** mandatory fields with no legitimate escape are not obeyed — they are defeated. A cuff fails, a two-year-old will not sit still, a patient refuses, a 90-second repeat-prescription visit does not warrant a full vitals set. The doctor's options under a hard block are to abandon the software for that visit (paper returns, the BRD's core goal fails) or to type `0`, `120/80` from memory, or `999`. The second is worse: it puts fabricated clinical values into a permanent record that looks exactly like a real one, forever.
+**Instead:** **mandatory-or-reason.** Vitals are required to finalize a visit, but each may be marked "not recorded" with a one-tap reason from a short doctor-defined list (equipment unavailable / patient declined / not clinically indicated / other). The value is stored as genuinely absent — never as a sentinel number — and the printed prescription shows "not recorded" rather than a blank that reads as an omission. This preserves the BRD's intent (no accidental skipping) while removing the incentive to fabricate.
 
-### B-3 — "No data loss" as an absolute
-**BRD says:** Reliability — "No data loss", "Regular automated backups".
-**Why it may not hold:** as an absolute it is neither testable nor achievable — a power cut one keystroke after typing loses that keystroke. Stated absolutely, it gets signed off as met and then quietly violated. "Regular" is undefined, and a backup that has never been restored is not a backup.
-**What I would put in its place:** a stated recovery objective — *no finalized visit is ever lost; an in-progress consultation loses at most N seconds of typing* (owner picks N: 5 or 10). Plus backup frequency in hours, a stated retention window, a **verified restore rehearsed before go-live**, and a visible signal when a backup does not complete.
-**Data integrity:** Silent loss — a silently failing backup is the most dangerous single item in this review, because it is invisible until the day it matters.
+### 5.3 Challenging the BRD: "No data loss" as an absolute
+**BRD says (L181):** "No data loss."
+**Why it may not hold:** stated absolutely, it is unachievable and untestable — a power cut mid-keystroke loses *something*, always. An untestable reliability requirement is one nobody can fail, which means nobody builds for it.
+**Instead:** state a **recovery point objective** the team can build and QA can verify: *no more than 5 seconds of typed consultation content is lost in a browser crash, tab close, or power cut; no committed (finalized) record is ever lost; and restore from backup loses at most 24 hours.* Add the two behaviours that make it real: continuous draft autosave (REC-1) and a **visible backup-status indicator** so a silent failure cannot masquerade as success (REC-8).
 
-### B-4 — "Open Questions: None"
-**BRD says:** "None (all major product decisions defined for Phase 1)."
-**Why it may not hold:** §12 lists 18 open questions and §4 identifies 8 build Blockers. Declaring zero open questions does not remove them — it removes the place the team was supposed to write them down. The predictable outcome: developers make these calls implicitly in code, and the clinic discovers each decision the first time it goes wrong with a real patient.
-**What I would put in its place:** replace the line with the §12 table. A BRD with 18 named open questions is a healthier document than one with none.
-**Data integrity:** all four modes — every identity, lifecycle and retention rule is currently scheduled to be invented by whoever writes that file first.
+### 5.4 Challenging the BRD: "Open Questions: None"
+**BRD says (L198):** "None (all major product decisions defined for Phase 1)."
+**Why it may not hold:** §4 lists 10 Blockers and 17 owner decisions. More importantly, the line is a *process* claim, and it is the one that does damage: it tells the development team there is nothing to ask about, so the questions surface mid-sprint as rework instead of pre-build as decisions.
+**Instead:** replace with the §12 table. A BRD with 16 honest open questions is more build-ready than one asserting zero.
 
-### B-5 — "80% reduction in paper usage" as a success criterion
-**BRD says:** at least 80% reduction in paper usage.
-**Why it may not hold:** the product's headline output is a **printed prescription**. Every consultation produces paper by design. Without a baseline (sheets per day today) and a defined denominator (does the prescription count?), it cannot be evaluated and will be interpreted charitably at sign-off — which makes it decorative. The same objection applies to C-11's "smooth" and "minimal training".
-**What I would put in its place:** drop it, or restate as a countable proxy — *zero handwritten patient records after go-live; paper limited to the printed prescription given to the patient.*
-**Data integrity:** None.
+### 5.5 Challenging the BRD: "80% reduction in paper usage"
+**BRD says (L77).**
+**Why it may not hold:** no baseline paper count exists anywhere, so the percentage has no denominator; and the product's flagship deliverable is a **printed prescription**, so a busy clinic could digitise perfectly and print *more* paper than before.
+**Instead:** measure the thing the product actually changes: **% of consultations with a complete digital record** (target ≥95% within 30 days of go-live) and **% of patient lookups performed without touching a paper file** (≥90%). Both are countable inside the app; neither is gamed by the prescription printer.
 
-### B-6 — "Search and history retrieval within 2–5 seconds"
-**BRD says:** Success Criteria — retrieval within 2–5 seconds; NFR — page load < 2s and "fast patient search".
-**Why it may not hold:** two different numbers describe overlapping operations, and neither is a *keystroke* budget. A 2–5 second search is far too slow to support search-first registration (D-2), which is the mechanism this review depends on for duplicate prevention. A doctor with a patient waiting will not sit through a 3-second wait before registering; they will jump straight to "add new patient".
-**What I would put in its place:** two separate budgets — **type-ahead results < 300ms** for patient search, and **full visit-history load < 2s**. Retire the 2–5 second figure. The tighter number is not gold-plating; it is what makes the duplicate prevention actually get used.
-**Data integrity:** Duplicate — slow search is a duplicate-creation mechanism.
+### 5.6 Challenging the BRD: "Offline functionality — out of scope"
+**BRD says (L65)**, alongside "No data loss" (L181) and browser-based access (L42).
+**Why it may not hold:** these three coexist only under a deployment model the BRD never names (C-6). If the app is hosted off-site, an ISP outage stops the clinic entirely and any in-progress typing is at risk — which is precisely the "lost or incomplete records" problem the Problem Statement exists to solve.
+**Instead:** I am **not** proposing offline sync (correctly out of scope, and expensive). I am proposing the owner make the deployment call explicitly, and if it is off-site, accept two consequences in writing: (a) network down = clinic on paper for the duration, and (b) an in-page "connection lost — your typing is held locally" state so the doctor is never misled into thinking a save succeeded. That is not offline mode; it is honest failure signalling.
 
-### B-7 — "Web-based" and "encryption at rest" without a deployment model
-**BRD says:** Scope — "Web-based access (browser-based system)"; NFR — "Data encryption (at rest and in transit)", "Regular automated backups".
-**Why it may not hold:** "web-based" describes the *interface*, not where the data lives. A hosted service, a clinic-server install and a single-PC install produce three different products against these NFRs: different backup mechanics, different meanings of "at rest", different behaviour when the network drops mid-consultation, and a very different privacy story for exports. Two developers reading this BRD could build both, and only discover the divergence at the first restore. The BRD is not wrong here — it is silent, and the silence is load-bearing.
-**What I would put in its place:** one sentence naming the deployment model, and one naming who operates backups. Then C-33 and C-36 become specifiable. This is a product/ops decision with cost and privacy consequences, not an architecture detail — the architecture that follows from it is a build-team decision and hands off there.
-**Data integrity:** Silent loss — no recovery guarantee can be written until this is answered.
+### 5.7 Challenging the BRD: "Single user" is used to justify having no audit trail
+**BRD implies it (L14, L185); C-48 shows the consequence.**
+**Why it may not hold:** single-user answers *who*, and nothing else. It does not answer *what was changed, when, and from what value* — which is exactly the question asked years later about a prescription, and the one asked by anyone auditing the record. One user makes the trail cheaper to build, not less necessary.
+**Instead:** a minimal append-only trail on the events that matter — visit finalized, visit amended, prescription printed/reprinted, patient demographics edited, patient deactivated, export generated. Not a general-purpose audit framework; roughly six event types.
 
 ---
 
-## 6. Divergent options for the open decisions
+## 6. Diverge — how the consultation is captured and committed
 
-Eight decisions the BRD leaves open. Options are genuinely distinct rather than variations of one; each set includes the minimal option and at least one that *removes* a step rather than adding a feature.
+Eight genuinely distinct approaches to the document's root gap (C-27, C-42). Each is judged on the same axes in §7.
 
-### D-1 — Consultation save model (Blocker C-19)
+**A — Stepped wizard.** Four screens: Vitals → Complaints → Diagnosis → Medications → Print. Each Next saves. The obvious reading of the BRD's own ordering.
 
-| Option | What it is | Effect on 2–3 min | Effort | Risk |
-|---|---|---|---|---|
-| A. Single save at the end | Everything held in the browser; one Save after medications | Fastest happy path | S | Critical: refresh, crash, session expiry or a stray back button loses the whole consultation |
-| B. Save per section | Vitals saved, then complaints, then diagnosis, then meds | +3–4 clicks | M | Partial records everywhere; "what is a half-saved visit" becomes permanent |
-| C. Autosave draft + explicit finalize | Draft row created on open, autosaved on pause/blur; "Finalize & Print" commits | Zero extra clicks | M | Draft clutter if consultations are abandoned; needs a draft-visibility rule |
-| D. Autosave + finalize + append-only amendments | As C, plus finalized visits immutable and corrections added as dated amendments | Zero extra clicks on the normal path | M–L | History rendering more complex; doctor must grasp that corrections append |
-| E. Two-stage commit with an end-of-day close | As C, plus all of today's drafts must be resolved before the day closes | +1 daily ritual | M | Adds a habit the doctor may simply ignore |
-| F. Event-log / journal model | Every keystroke batch stored as an event; the record is a projection | Zero | L | Over-engineered for one clinic; violates "don't build for scale that isn't there" |
+**B — Single-page consultation.** One scrollable page with all four sections visible at once and a single Save. Minimal build, minimal navigation.
 
-**Converged: D**, borrowing E's "unfinished consultations" prompt as a login-time nudge rather than a blocking ritual. D is the only option that satisfies "no data loss" *and* answers "can I edit after printing?" — a question the BRD never asks but the clinic will ask in week one. C is the acceptable cheaper version if amendments are deferred, but the amendment policy must then be written down as an accepted risk, not left blank.
-**Data integrity:** closes **Silent loss** (autosave bounds the loss window) and **Mutable history** (amendments append, never overwrite). Introduces one exposure to manage: an abandoned draft is **Orphan**-adjacent if hidden from history — hence the rule that drafts are always visible and clearly flagged.
+**C — Autosaved draft + explicit finalize at print.** One page (as B), continuously autosaved as a **draft**; "Finalize & Print" is the single commit point that makes the visit a permanent record. Finalized visits are immutable; corrections are appended as dated amendments. Draft visits are visibly marked everywhere they appear.
 
-### D-2 — Patient identity and duplicates (Blocker C-13)
+**D — Remove the step: consultation-first, appointment implied.** Drop scheduling from the critical path for walk-ins. The doctor searches a patient and clicks "Start consultation"; the system creates the appointment record itself, already marked Completed on finalize. Scheduling remains available for booked patients but is never a prerequisite. *This removes a step rather than adding a feature.*
 
-| Option | What it is | Trade-off |
-|---|---|---|
-| A. No constraint | Anyone can be registered any number of times | Zero friction, guaranteed split histories. This is the current BRD |
-| B. Hard unique constraint on phone | One patient per phone number | Breaks in week one — families share a number |
-| C. Soft duplicate warning at registration | On save, show near-matches (same phone, or similar name + same age); doctor confirms "this is a new patient" | One keystroke, and only when a match exists |
-| D. Search-first registration | Registration is reachable only *after* a search returns nothing | **Removes** a step — the doctor is searching anyway. Strongest prevention |
-| E. Clinic-assigned patient number on a card | Patient brings a number; lookup is exact | Works well until the card is lost, which is always |
-| F. Full merge tooling | Merge two patients, re-parent visit history | Real design effort; cures rather than prevents |
+**E — Keyboard-first command surface.** No new fields; a different input model. `/` focuses search, `Alt+1..4` jumps between consultation sections, `Ctrl+Enter` finalizes and prints, Tab order fixed and tested. Mouse becomes optional throughout a live consultation.
 
-**Converged: D + C together.** Search-first is the prevention and is a removed step, not an added one; the near-match warning is the safety net. F goes to the parking lot (P-1) with a stated interim: until merge exists, one of the pair is **archived, never deleted**, with a pointer note to the survivor.
-**Data integrity:** directly targets **Duplicate**. The archive-not-delete interim exists specifically to avoid trading a duplicate for an **Orphan** — deleting the loser of a duplicate pair would detach its visits.
+**F — Challenge-the-BRD: vitals as mandatory-or-reason.** The §5.2 change, treated as a build option: the vitals gate stays but gains a structured "not recorded + reason" path, so the flow can never dead-end.
 
-### D-3 — Age vs. DOB (C-12)
+**G — Paper-parity freeform.** One large text area per visit; structured fields optional. Fastest possible entry and the smallest build — and it destroys the structured history, filtering and export value that justifies the product. Included as the honest low-end anchor.
 
-| Option | Trade-off |
-|---|---|
-| A. DOB required | Precise, auto-updating, sorts correctly — but many walk-ins do not know their DOB and the doctor will invent 01-01-1980 |
-| B. Age only | Fast and honest to how the clinic works — but the record silently rots; "45" recorded in 2026 is meaningless in 2029 |
-| C. DOB optional + age-at-registration stored **with the date it was captured** | Both paths work; display derives from DOB when present, otherwise from age + capture date |
-| D. DOB with a precision flag (exact / year-only / approximate) | Most correct, most fields, most entry time |
-| E. Birth year only | Halfway house; loses newborn granularity entirely |
+**H — Prefill from last visit.** For a returning patient, "Copy from last visit" pre-loads previous medications and complaint text for editing. Large time saving on repeat/chronic patients; carries a real clinical-safety-shaped risk of a stale line being carried forward unnoticed.
 
-**Converged: C.** The only option that stays truthful three years later without blocking a walk-in. Display rule: show computed age, marked approximate when derived. Age display must support sub-year units ("3 months", "11 days") or a newborn prints as "0".
-**Data integrity:** closes a **Mutable history** exposure — a stored bare age silently changes meaning with the passage of time, the quietest form of record corruption in this product.
+### 6.1 Sketch — consultation lifecycle (option C), at sketch altitude
 
-### D-4 — Prescription printing as a recorded event (Blocker C-27)
+```
+   [ none ]
+      | doctor clicks "Start consultation" (from appointment OR walk-in, option D)
+      v
+  ( DRAFT ) --- autosave every few seconds; visible as "Draft" in history
+      |  \
+      |   \-- abandoned (no finalize) --> stays DRAFT, listed but flagged; never
+      |                                    counted as a completed visit
+      | "Finalize & Print"  (vitals gate: value OR not-recorded+reason, option F)
+      v
+ ( FINALIZED ) -- immutable; prescription may be reprinted (each reprint logged)
+      |
+      | doctor edits later
+      v
+ ( FINALIZED + AMENDMENT ) -- original preserved, amendment appended with its
+                              own timestamp and note. Nothing is overwritten.
+```
 
-| Option | Trade-off |
-|---|---|
-| A. Print is a UI action only, nothing recorded | Simplest; no way to answer "what did I give this patient and when" if the paper is lost |
-| B. Print records an issued-at timestamp on the visit | Cheap, answers the basic audit question |
-| C. Print stores an immutable snapshot of exactly what was printed | Survives later edits; a reprint reproduces the original |
-| D. C + reprint log (original / reprint / amended reissue, each dated) | Full traceability |
-| E. Snapshot + a verification code printed on the paper | Lets a pharmacist or patient query a specific issue later — but that is an integration path, and integrations are out of scope |
+### 6.2 Sketch — entities and relationships only (no types, no DDL)
 
-**Converged: C, with reprints flagged (light D).** Not regulatory theatre: once a visit can be amended, "what the patient is holding" and "what the record now says" diverge, and only a snapshot reconciles them. Note the browser reality — **the app cannot know whether the print dialog completed or was cancelled**, so "issued" must mean "prescription generated", and a cancelled dialog must leave a state the doctor can reprint from without creating a second visit.
-**Data integrity:** closes **Mutable history** on the most consequential artefact in the product, and prevents a **Duplicate** visit created by a doctor who reacts to a cancelled print dialog by starting over.
+```
+ClinicProfile (clinic_name, address, doctor_name, registration_no, signature_image,
+               prescription_footer)          <-- C-32: currently has no home in the BRD
 
-### D-5 — Appointment ↔ consultation relationship (Blocker C-18)
+Patient (name, dob?, approx_age?, age_recorded_on?, gender, phone?, alt_contact?,
+         registered_on, status:active|inactive, merged_into?)
+   |
+   |--< Appointment (scheduled_for, status, source: booked|walk-in, visit?)
+   |
+   |--< Visit (state: draft|finalized, started_at, finalized_at, appointment?)
+            |--  Vitals (temperature, temperature_unit, bp_systolic, bp_diastolic,
+            |            pulse, each with not_recorded_reason?)
+            |--  Complaint (text)
+            |--  Diagnosis (text)
+            |--< Medication (name, dosage, frequency, duration, instructions)
+            |--< Prescription (issued_at, printed_count)
+            |--< Amendment (text, created_at)
+```
 
-| Option | Trade-off |
-|---|---|
-| A. Fully coupled — a consultation requires an appointment | Clean model, wrong clinic: walk-ins are the majority in small practices |
-| B. Fully decoupled — appointments and visits are unrelated | Daily list and history never reconcile; "Completed" becomes a manual assertion with nothing behind it |
-| C. Optional link — a consultation may reference an appointment; finalizing auto-sets that appointment to Completed | Matches reality, **removes** a click, keeps the daily list honest |
-| D. Auto-create an appointment for every walk-in | Daily list is complete — but fabricates appointments that never existed |
-| E. C + a daily reconciliation view of Scheduled-but-no-visit | Useful end-of-day sweep; one more screen |
+Two relationships carry most of the integrity weight: **Appointment ↔ Visit** (optional in both directions — a cancelled appointment has no visit, a walk-in visit has no booked appointment) and **Patient → Visit** (a patient with visits must never be hard-deleted; `status` and `merged_into` exist so identity can be corrected without destroying history).
 
-**Converged: C**, with E's reconciliation deferred to the parking lot as a display-only nicety (P-14). C removes a step: the doctor never has to remember to mark an appointment Completed.
-**Data integrity:** closes an **Orphan** exposure — today a Completed appointment with no visit behind it is legal and indistinguishable from a mistake. D was rejected precisely because it creates **Duplicate** appointment records for events that never happened.
-
-### D-6 — Export scope and safety (C-6)
-
-| Option | Trade-off |
-|---|---|
-| A. Export everything, one button | Simplest; produces an unencrypted full patient database in the Downloads folder — the worst privacy outcome available |
-| B. Export scoped to the current view only (this patient / this date range) | Small friction, dramatically smaller blast radius |
-| C. B + a confirmation naming what is being exported and how many records | One extra click on a rare action |
-| D. B + C + password-protected PDF / passphrase-protected CSV | Real protection, real friction, and the passphrase ends up on a sticky note |
-| E. Print-to-PDF only, no CSV at all | Kills the CSV injection and mangling class entirely — and kills the legitimate "give me my data" use case |
-| F. Export + an audit entry recording what left the system and when | Prevents nothing; makes it answerable afterwards |
-
-**Converged: B + C + F.** Scope-limited by default, a confirmation stating the record count, and an audit entry. D goes to the parking lot (P-3). Separately and non-negotiably: CSV export must neutralise formula-injection prefixes (`=`, `+`, `-`, `@`) and correctly quote commas, quotes and newlines inside complaint and diagnosis text — the difference between a valid export and a silently mangled or actively dangerous one.
-**Data integrity:** **Silent loss** in the exported artefact — an unescaped comma in a complaint splits the row and the export *looks* successful. Privacy exposure is covered in §8.9.
-
-### D-7 — The vitals exception path (Blocker C-20)
-
-| Option | Trade-off |
-|---|---|
-| A. Hard block (current BRD) | Guarantees a value in the field; guarantees fabricated values or abandoned records |
-| B. Free-text override on any vital | Maximum flexibility; unusable in history and impossible to filter |
-| C. Value **or** an explicit "not recorded" reason from a short doctor-defined list | Preserves the BRD's intent, one keystroke on the exception path, stays structured |
-| D. Vitals optional with a warning at finalize | Simplest to build; erodes the BRD's clear intent that vitals matter |
-| E. Vitals mandatory only when medication is prescribed | Clinically flavoured rule — out of bounds for me to propose; only the doctor can set it |
-
-**Converged: C.** E is named for completeness but is a clinical decision: **the doctor defines the rule, the system enforces it.** The same applies to implausible-value bounds — the system warns against ranges the doctor configures and never asserts a clinical judgement of its own.
-**Data integrity:** closes a fabrication vector. A recorded "not recorded — cuff unavailable" is a durable fact; a blank field is an ambiguity someone will later misread as a normal reading.
-
-### D-8 — Deployment model (C-4 / C-33 / C-36; new in this pass)
-
-Product-level options only. The architecture that follows from the choice is a build-team decision and hands off there.
-
-| Option | Trade-off |
-|---|---|
-| A. Single-tenant hosted service | Backups and encryption at rest are operable and verifiable by someone whose job it is; requires clinic connectivity for every consultation, and patient data leaves the premises |
-| B. Server in the clinic, browser access on the LAN | Data never leaves the premises; backup and disk encryption become the clinic's problem, and "regular automated backups" needs a named owner and an off-site copy |
-| C. Single PC, browser pointed at localhost | Cheapest and simplest; one disk failure is the whole clinic, and "multi-device" and remote access disappear |
-| D. Hosted, with a local read-only cache | Survives short outages — but caching patient data on the device reopens EC-73 and edges toward offline mode, which is explicitly out of scope |
-
-**Converged: no recommendation — this is the owner's call (OQ-6),** and it is the highest-leverage unanswered question in the document because C-33 and C-36 cannot be specified without it. What I will say: whichever is chosen, the acceptance criteria in B-3 (recovery objective, backup frequency, rehearsed restore, visible failure signal) apply unchanged. D is the one to be wary of — it buys resilience by quietly importing an out-of-scope capability.
-**Data integrity:** **Silent loss** — every backup and recovery guarantee in this review is downstream of this decision.
+*If the team needs field types, constraints, indexes or a migration plan, that is implementation design and I should hand off rather than produce it here.*
 
 ---
 
-## 7. Sketches
+## 7. Converge
 
-Sketch altitude only — entity and field *names* and relationships, to make the decisions above concrete. No types, constraints, indexes or migrations; those are implementation decisions for the build team, and producing them here would hand the team choices I am not positioned to make.
+| Opt | What it is | Why it helps this doctor | Effort | Effect on 2–3 min | Integrity effect | Key risk |
+|---|---|---|---|---|---|---|
+| **A** Wizard | 4 sequential screens | Enforces BRD order; hard to skip a section | M | **Worse** — 3 extra transitions, and back-navigation to fix a typo is costly | Neutral; partial completion still undefined | Rigid: real consultations jump around (meds discussed before diagnosis is typed) |
+| **B** Single page | Everything on one page, one Save | Fewest transitions; whole visit visible at once | S | **Good** — near-zero system overhead | **Bad** — one Save means one interruption loses the lot | Directly reproduces the BRD's silent-loss gap |
+| **C** Autosaved draft + finalize | B, plus draft state and an explicit commit at print | Doctor never thinks about saving; "printed" and "permanent" become the same well-understood moment | M | **Neutral to good** — no extra clicks; finalize is the print click the doctor already makes | **Best** — closes Silent loss and Mutable history; gives Orphan a parent | Needs a clear draft/finalized visual distinction or history becomes confusing |
+| **D** Consultation-first | Walk-in starts a consultation directly; appointment auto-created | Matches how a small GP clinic actually runs; removes a whole screen from the common path | S–M | **Best** — removes a step | **Good** — every visit gets an appointment parent automatically, no orphans | Daily-list semantics must cover auto-created rows; scope-adjacent to C-24, needs the owner's call |
+| **E** Keyboard-first | Shortcuts and fixed tab order | Hands stay on keys with a patient in the room | S | **Good** — seconds per section | None | Shortcut collisions with browser/Safari; needs a discoverable hint row |
+| **F** Vitals mandatory-or-reason | Structured escape from the vitals gate | Flow never dead-ends; no fabricated values enter history | S | **Neutral** — one tap only in the exception case | **Good** — prevents sentinel values corrupting clinical history | Formally a BRD change (§5.2); owner must accept |
+| **G** Freeform | One text area per visit | Fastest entry, smallest build | S | **Best** raw speed | **Bad** — no structure to filter, export or trust later | Guts history/export value; contradicts the Problem Statement |
+| **H** Prefill from last visit | Copy previous meds/complaint forward | Large saving on chronic and repeat patients | M | **Best** on repeat visits | **Watch** — copied content can be mistaken for freshly entered content | Stale medication carried forward unnoticed. Mitigation is UI-level (copied lines visually marked and requiring explicit confirmation) — **the clinical rule about what may be repeated is the doctor's to define, never the system's suggestion** |
 
-### 7.1 Entity sketch
-
-```
-Patient
-  patient_id · display_name · dob (optional) · age_at_registration (optional)
-  age_captured_on · gender · phone_primary · phone_alt (optional)
-  notes · registered_on · record_status (active | archived) · archived_into_ref
-
-Appointment
-  appointment_id · patient_id -> Patient · scheduled_for · status
-  status_changed_on · reason_note · created_on
-
-Visit (Consultation)
-  visit_id · patient_id -> Patient · appointment_id -> Appointment (optional)
-  clinic_date · started_at · finalized_at · lifecycle_state (draft | finalized)
-  complaints_text · diagnosis_text
-
-Vitals                (one per Visit)
-  visit_id -> Visit
-  temperature_value · temperature_unit · temperature_not_recorded_reason
-  bp_systolic · bp_diastolic · bp_not_recorded_reason
-  pulse_value · pulse_not_recorded_reason
-
-MedicationLine        (many per Visit, ordered)
-  line_id · visit_id -> Visit · sequence
-  drug_name · dosage · frequency · duration · instructions
-
-PrescriptionIssue     (many per Visit: original, reprint, amended reissue)
-  issue_id · visit_id -> Visit · generated_at · issue_kind · printed_snapshot
-
-Amendment             (many per Visit, append-only)
-  amendment_id · visit_id -> Visit · amended_at · field_changed · prior_value · reason
-
-ClinicProfile         (single record — the entity missing from the BRD, C-25)
-  clinic_name · doctor_name · qualifications · registration_number
-  address · phone · footer_note · logo_ref
-
-AuditEvent            (append-only)
-  event_id · occurred_at · entity_kind · entity_id · action
-```
-
-Relationships: `Patient 1—* Visit` · `Visit 1—1 Vitals` · `Visit 1—* MedicationLine` · `Visit 1—* PrescriptionIssue` · `Visit 1—* Amendment` · `Appointment 0..1—0..1 Visit`.
-
-**Data integrity:** four elements here exist purely to close integrity holes and **none of them appear in the BRD** — `PrescriptionIssue.printed_snapshot` closes **Mutable history** on the printed artefact; `Amendment` closes **Mutable history** on the visit; `Patient.record_status` closes the **Orphan** hole a hard delete would open; `Visit.lifecycle_state` closes **Silent loss**. `ClinicProfile` is the missing entity behind Blocker C-25.
-
-### 7.2 Appointment state machine (BRD lists states, never transitions)
-
-```
-                              finalize visit
-              +-----------+   (auto, D-5 C)   +-----------+
-   create --> | Scheduled | ----------------> | Completed |
-              +-----+-----+                   +-----------+
-                 |     |                            ^
-        cancel   |     |  mark no-show              | late arrival:
-                 |     +-------------+              | allowed + audited
-                 v                   v              |
-           +-----------+       +-----------+        |
-           | Cancelled |       |  No-show  | -------+
-           +-----+-----+       +-----+-----+
-                 |                   |
-                 +---- reopen? ------+   <- NOT DRAWN IN THE BRD. Decision needed.
-```
-
-Transitions the BRD does not define, with my proposed answers:
-- **Completed -> anything:** blocked. A finalized visit sits behind it; changing the status would orphan that visit's justification.
-- **No-show -> Completed:** **allowed** (patient turned up late). High likelihood, and blocking it drives the doctor to create a duplicate appointment.
-- **Cancelled -> Scheduled:** blocked. Book a new appointment instead — simpler and loses nothing.
-- **Scheduled date passes, still Scheduled:** do **not** auto-transition. Display as "Overdue" in the daily list and let the doctor resolve it. Auto-marking No-show silently rewrites clinical-adjacent history.
-
-**Data integrity:** the two blocked transitions prevent **Orphan** (a Completed status detached from its visit) and **Mutable history** (silent auto-rewriting of what happened on a past day).
-
-### 7.3 Consultation lifecycle
-
-```
-  [open consultation]
-        |  creates draft immediately; autosave from here on
-        v
-   +---------+  finalize & print   +-----------+   amend    +----------+
-   |  Draft  |-------------------->| Finalized |----------->| Amended  |
-   +----+----+                     +-----+-----+            +----------+
-        |                                |
-        | discard (explicit, confirmed)  | reprint -> new PrescriptionIssue
-        v                                v            flagged as reprint
-   [deleted, audited]
-```
-
-Rules this settles: a draft **is** visible in that patient's history, clearly marked, so it can never be silently lost. Finalized visits are read-only. Amendments append; they never overwrite.
-**Data integrity:** closes **Silent loss** (draft persisted from the first keystroke, and visible) and **Mutable history** (finalized records immutable, corrections traceable).
+**Surviving set: C + D + F, with E as a low-cost multiplier.** B is C without the safety. A costs time the BRD does not have. G is rejected on principle: it solves the speed criterion by discarding the reason the product exists. **H is Phase 1-eligible but sequenced last** — it is the only option whose failure mode is a wrong medication on a real prescription, so it should not ship in the same increment as the lifecycle work.
 
 ---
 
 ## 8. Nine-category edge-case sweep
 
-All nine categories were checked against the leading options. Only cases that genuinely apply are reported, ranked within each category by likelihood × impact. Rubric in §3. **Cases that corrupt data or lose a record lead each table; merely-ugly cases sit below them and never displace them.**
+Rated with the §3 rubric, ranked within each category by likelihood × impact. **Data-integrity cases are marked `[DI]`** — these are the "corrupts data or loses a record" set, consolidated in §14.
 
 ### 8.1 Empty / zero / first-run
 
-**Data integrity:** mostly **None** — this category is about the dignity of the empty state, with one exception (EC-1, an unusable clinical document).
-
-| ID | Scenario | Likelihood | Impact | Proposed handling | Phase |
+| ID | Scenario | Lik. | Impact | Proposed handling | Phase |
 |---|---|---|---|---|---|
-| EC-1 | First launch, clinic header never configured, doctor prints a prescription | High | Major | Force ClinicProfile setup on first login; block printing until complete. A prescription with a blank header is not a usable clinical document | 1 |
-| EC-2 | Consultation with zero medications (advice-only visit) | High | Major | Explicitly allowed. Prescription prints "No medication prescribed" rather than an empty section | 1 |
-| EC-3 | Diagnosis blank at print time | Med | Major | Warn once, allow override. Hard-blocking is clinical rule-setting; the doctor decides (OQ-14) | 1 |
-| EC-4 | No patients yet — search, daily list and recent patients all empty | High | Minor | Purposeful empty states, each offering the primary action ("Register first patient") | 1 |
-| EC-5 | No appointments today (all walk-ins) | High | Minor | Empty state offers "Start walk-in consultation" | 1 |
-| EC-6 | Patient with zero prior visits | High | Minor | "First visit" state, not an empty table | 1 |
-| EC-7 | Search returns nothing | High | Minor | Offer "Register [typed text] as a new patient" — this *is* the search-first path from D-2 | 1 |
-| EC-8 | Export invoked with nothing in scope | Med | Minor | Disable export when the count is zero; never produce a zero-row file that looks like a successful export | 1 |
+| E-1 | **First launch: no clinic header configured**, doctor prints a prescription `[DI]` | High | Major | Block first print until ClinicProfile (C-32) is completed; first-run setup screen before any consultation is possible | 1 |
+| E-2 | No patients yet — search and recent-patients are both empty | High | Minor | Empty state that offers "Register first patient" as the only action, not a blank panel | 1 |
+| E-3 | No appointments today | High | Minor | Empty state offering "Start walk-in consultation" (option D) | 1 |
+| E-4 | Patient with zero prior visits opens History | High | Minor | "No previous visits" + direct start-consultation action; never an empty grid | 1 |
+| E-5 | Consultation finalized with **no medications** (advice-only visit) | High | Major | Explicitly allowed; prescription prints with "No medication prescribed" so a blank section is never read as a printing failure | 1 |
+| E-6 | Export triggered with nothing in range | Med | Minor | Warn before generating; do not emit a zero-row file that looks like data loss | 1 |
+| E-7 | Search returns no match | High | Minor | "No patient found" + inline "Register [typed text] as new patient" — the moment a typo turns into a duplicate if unhandled | 1 |
+| E-8 | Patient registered with **every** optional field blank (name only) | Med | Major | Allowed if name present; flag profile as incomplete so it is visible rather than silently thin | 1 |
 
-### 8.2 Boundary values and extremes
+### 8.2 Boundary values & extremes
 
-**Data integrity:** **Silent loss** dominates — text and layout that clip on print or export lose clinical content with no error shown.
-
-| ID | Scenario | Likelihood | Impact | Proposed handling | Phase |
+| ID | Scenario | Lik. | Impact | Proposed handling | Phase |
 |---|---|---|---|---|---|
-| EC-9 | Dosage typo — 5 vs. 50 | Med | Critical | No clinical guard is appropriate from me. What is appropriate: a pre-finalize review screen showing the medication list exactly as it will print. Review, not validation | 1 |
-| EC-10 | Prescription overflows one printed page | High | Major | Defined multi-page layout: repeating header, "Page 1 of 2", medication rows never split across pages | 1 |
-| EC-11 | Complaint text pasted at 10,000+ characters | Med | Major | Stated max length with a visible counter; print must wrap, never clip. Clipping on print is silent clinical loss | 1 |
-| EC-12 | Newborn — age in days or months | Med | Major | Age display supports "3 months" / "11 days". A newborn printed as "0" is misleading on a clinical document | 1 |
-| EC-13 | Vitals at implausible extremes (temperature 450, pulse 4) | Med | Major | **The doctor defines the plausible range; the system enforces it as a soft warning** — never a hard block, never a clinical judgement of its own. Blank until the doctor configures it | 1 |
-| EC-14 | DOB in the future, or today | Low | Major | Future DOB rejected. Today allowed (newborn) | 1 |
-| EC-15 | 300-character patient name breaks the prescription header | Med | Minor | Field max length; header truncates with ellipsis, the stored record never does | 1 |
-| EC-16 | 40 medications on one prescription | Low | Minor | No hard cap; the layout must simply cope (EC-10) | 1 |
-| EC-17 | Age above ~120 | Low | Minor | Soft warning only; accept the value | 1 |
-| EC-18 | 500 patients in one day's list | Low | Minor | Theoretical for one physician. Do not build pagination for volume that is not there | accepted |
+| E-9 | **Age stored as a number, read years later** `[DI]` | High | Critical | Never store bare age. DOB, or `approx_age` + `age_recorded_on` (C-19). A record that silently ages is corrupted history | 1 |
+| E-10 | **Prescription overflows one page** (10+ medications, long instructions) `[DI]` | Med | Major | Paginate with patient name, date and "Page n of m" repeated on every page; never silently truncate — a truncated prescription is a clinical document with missing content | 1 |
+| E-11 | Newborn: age in days/weeks; DOB = today | Med | Major | Accept DOB = today; display age in days < 1 month, months < 2 years. Reject DOB in the future | 1 |
+| E-12 | Vitals at implausible extremes (temp 45 °C, pulse 300, BP 400/0) | Med | Major | **Soft** warning with confirm, never a hard block. Thresholds are configuration the **doctor defines**; the system only enforces what it is given | 1 |
+| E-13 | Single-name patient (no surname) | High | Major | One free-text name field. A required-surname design rejects real patients (C-18) | 1 |
+| E-14 | 300-character name, or 10,000-character pasted complaint | Med | Minor | Soft cap + counter, hard cap, graceful truncation in list views with full text on the record | 1 |
+| E-15 | Patient aged 100+, or DOB implying age > 120 | Low | Minor | Warn, allow; typo-catching only | 1 |
+| E-16 | 500 rows in the daily list / thousands of visits in history | Low | Minor | Paginate history at ~50; daily list is bounded by reality (C-46) | 1 |
+| E-17 | Dosage typed as `50` instead of `5` | Med | Critical | Out-of-band for the software to judge. Options are (a) nothing, (b) a confirm step on finalize showing the medication list in large type for visual check. **(b) recommended — it is a legibility aid, not clinical advice** | 1 |
 
 ### 8.3 Missing / partial / optional data
 
-**Data integrity:** **Silent loss** (abandoned records) and fabricated values. EC-19 is the highest-value fix in this category.
-
-| ID | Scenario | Likelihood | Impact | Proposed handling | Phase |
+| ID | Scenario | Lik. | Impact | Proposed handling | Phase |
 |---|---|---|---|---|---|
-| EC-19 | BP genuinely cannot be taken, but vitals are mandatory | High | Critical | Explicit "not recorded" reason per vital (B-2 / D-7). Without it the doctor fabricates a value — invisible corruption of a clinical record | 1 |
-| EC-20 | Patient has no phone number | High | Major | Phone optional — and therefore cannot be the identity key (D-2). Name search must still find them | 1 |
-| EC-21 | Patient does not know their DOB | High | Major | Age + capture-date path (D-3 option C) | 1 |
-| EC-22 | Single-name patient, no surname | High | Major | One `display_name` field, not first/last. Splitting names is the more common bug and buys nothing here | 1 |
-| EC-23 | Medication with dosage but no duration | Med | Major | Drug name required; the other four optional, with the pre-print review (EC-9) showing what is blank (OQ-14) | 1 |
-| EC-24 | Prescription printed before diagnosis is entered | Med | Major | Same handling as EC-3 | 1 |
-| EC-25 | Gender not stated / non-binary / patient declines | Med | Minor | The value list is a **policy call by the owner** (OQ-15) and must include an "unspecified" option. Do not hardcode two values | 1 |
-| EC-26 | Contact details captured but now stale | Med | Minor | Show `updated_on` beside contact details. No verification workflow in Phase 1 | 1 |
+| E-18 | **BP genuinely cannot be taken** but vitals are mandatory `[DI]` | High | Critical | Mandatory-or-reason (§5.2). Absent must be stored as absent — a sentinel `0/0` is permanent fabricated clinical data | 1 |
+| E-19 | **Prescription printed before diagnosis entered** `[DI]` | Med | Major | Owner decides (C-30) whether diagnosis blocks finalize. Whatever is chosen, the printed sheet must not show an ambiguous blank | 1 |
+| E-20 | Patient has no phone number | High | Major | Allow; phone optional but strongly prompted, since it is a search key (C-21/C-22). Show "no contact recorded" explicitly on the profile | 1 |
+| E-21 | DOB unknown, only "about 40" | High | Major | `approx_age` + `age_recorded_on`, displayed as "~40 (recorded 2026)" so it never masquerades as exact | 1 |
+| E-22 | Medication with dosage but no duration | Med | Major | Owner decides required subset. Default: Name + Dosage required; Frequency/Duration/Instructions optional and printed only when present | 1 |
+| E-23 | Gender unknown or not stated | Med | Minor | Include an explicit "Not stated" option; do not force a guess (C-20) | 1 |
+| E-24 | Temperature recorded but unit ambiguous (37 vs 98.6) | Med | Major | Unit is part of the stored value and is fixed per clinic in ClinicProfile; display and print always show the unit | 1 |
 
-### 8.4 Duplicates and identity
+### 8.4 Duplicates & identity
 
-**Data integrity:** **Duplicate** throughout, with **Orphan** risk hiding inside any naive "just delete the extra one" fix.
-
-| ID | Scenario | Likelihood | Impact | Proposed handling | Phase |
+| ID | Scenario | Lik. | Impact | Proposed handling | Phase |
 |---|---|---|---|---|---|
-| EC-27 | Same patient registered twice; history splits | High | Critical | Prevention via search-first registration + near-match warning (D-2). Highest-value prevention in this review: a split history means the doctor decides on half a record | 1 |
-| EC-28 | Two different patients, same name and same age | Med | Critical | Every patient picker shows a disambiguator (phone tail + last visit date). Never show a bare name in a selection list | 1 |
-| EC-29 | Duplicates discovered *after* both records have visit history | Med | Critical | Merge deferred (P-1). Interim: archive one so it leaves search, with a pointer note to the survivor. **Never delete** — that orphans visits | 1 |
-| EC-30 | Consultation started against the wrong patient, noticed halfway | Med | Critical | Patient identity pinned and visible throughout the consultation screen (C-30). Re-assignment allowed while draft, and audited; once finalized, void-and-reissue with an amendment note | 1 |
-| EC-31 | A whole family shares one phone number | High | Major | Phone must not be unique. Phone search returns *all* matches with name and age; never auto-selects the first | 1 |
-| EC-32 | Two appointments for the same patient on the same day | Med | Minor | Allowed (morning review + evening follow-up) but warn on the second booking | 1 |
+| E-25 | **Same patient registered twice; history splits** `[DI]` | High | Critical | Duplicate warning at registration on (name similarity + phone) or (name + DOB) before the record is created. Prevention is Phase 1; **merge tooling is Phase 2** (§11) | 1 (detect) |
+| E-26 | **Merging two records — what happens to two visit histories?** `[DI]` | Med | Critical | Not solved in Phase 1. Interim: mark one record inactive with a `merged_into` pointer so both histories remain readable and neither is deleted. **Never destructive** | 1 (pointer) / later (merge) |
+| E-27 | One phone number for a whole family | High | Major | Phone is a household identifier, not a person identifier. Search on phone must return **all** matches as a list, never auto-select the first | 1 |
+| E-28 | Two patients, same name and same age | Med | Critical | Disambiguation is mandatory in every picker: show phone tail + DOB/age + last visit date in results. **Never show name alone in a selection list** — this is the wrong-patient-record path | 1 |
+| E-29 | Two appointments for the same patient on the same day | Med | Minor | Allowed (morning and evening happen); warn on creation of the second | 1 |
+| E-30 | Returning patient re-registered because search failed to find them (typo in stored name) | High | Major | Mitigated by E-7 and E-25; fuzzy search on name is the real fix (C-22) | 1 |
 
-### 8.5 State transitions and lifecycle
+### 8.5 State transitions & lifecycle
 
-**Data integrity:** **Silent loss** (EC-33) and **Mutable history** (EC-35, EC-36); EC-34 is a pure **Orphan** case.
-
-| ID | Scenario | Likelihood | Impact | Proposed handling | Phase |
+| ID | Scenario | Lik. | Impact | Proposed handling | Phase |
 |---|---|---|---|---|---|
-| EC-33 | Consultation started, never finished (patient leaves, day ends) | High | Critical | Draft persists, visible in history and in an "Unfinished consultations" prompt at next login. The BRD is silent, and this is the most likely real data-loss path in the product | 1 |
-| EC-34 | Attempt to delete a patient who has visits | Med | Critical | Hard-block delete; offer archive. Destroying clinical history must never be a one-click action | 1 |
-| EC-35 | Consultation edited after the prescription was printed | High | Major | Amendments append; printed snapshot preserved; history shows both (D-1 D + D-4 C) | 1 |
-| EC-36 | Backdating a visit (recording yesterday's paper consultation) | Med | Major | Allow, but record both `clinic_date` and `created_on` and label backdated entries. Undisclosed backdating is the problem, not backdating | 1 |
-| EC-37 | Draft consultation discarded by mistake | Low | Major | Explicit confirmation naming the patient; audited | 1 |
-| EC-38 | No-show marked, patient arrives 40 minutes late | High | Minor | Transition allowed and audited (§7.2) | 1 |
-| EC-39 | Appointment date passes while still "Scheduled" | High | Minor | Display as Overdue; never auto-transition | 1 |
-| EC-40 | Cancelled appointment, doctor sees the patient anyway | Med | Minor | Walk-in visit with no appointment link — already supported by D-5 C | 1 |
-| EC-41 | Forward-dating an appointment months ahead | Med | Minor | Allowed. Reminders are out of scope, so accept that a distant appointment may simply be forgotten | accepted |
+| E-31 | **Consultation started but never finished** `[DI]` | High | Critical | Draft state (option C), visibly flagged in history and the daily list, never silently counted as a completed visit and never silently discarded | 1 |
+| E-32 | **Editing a consultation after the prescription is printed** `[DI]` | High | Critical | Finalized visits immutable; corrections appended as dated amendments; the original text is never overwritten. The patient holds a paper copy — the stored record must still match what was handed over | 1 |
+| E-33 | **Deleting a patient who has visits** `[DI]` | Med | Critical | No hard delete. Deactivate only; visits preserved and reachable. Hard delete is a retention/erasure question (C-48), not a UI button | 1 |
+| E-34 | **Completed → Scheduled (undo) detaching a real consultation** `[DI]` | Med | Major | Disallow. Once a visit is finalized against an appointment, the appointment stays Completed; mistakes are handled by amendment, not reversal | 1 |
+| E-35 | No-show → Completed (patient turns up 40 minutes late) | High | Major | **Must be allowed** — this is normal clinic life, not an edge case. Transition permitted and logged | 1 |
+| E-36 | Cancelled → Completed | Med | Major | Allow with confirm (patient came anyway), or require a fresh walk-in visit. Owner's call; either way the previous status must remain visible | 1 |
+| E-37 | Yesterday's appointments still say Scheduled at midnight | High | Minor | Do **not** auto-mark No-show — that writes clinical-adjacent facts nobody asserted. Show them as "Past — needs status" and prompt at end of day | 1 |
+| E-38 | Appointment backdated or forward-dated | Med | Minor | Allow both (retrospective entry is real); warn beyond a sensible window | 1 |
+| E-39 | Vitals entered, visit closed without medications, then reopened the same day | Med | Major | Reopening a draft is normal; reopening a **finalized** visit produces an amendment (E-32), not an edit | 1 |
 
-### 8.6 Concurrency, timing and sessions
+### 8.6 Concurrency, timing & sessions
 
-**Data integrity:** **Silent loss** across the board. "Single user" never meant "single tab".
-
-| ID | Scenario | Likelihood | Impact | Proposed handling | Phase |
+| ID | Scenario | Lik. | Impact | Proposed handling | Phase |
 |---|---|---|---|---|---|
-| EC-42 | Browser refresh or accidental tab close mid-consultation | High | Critical | Autosave (D-1) plus an unload warning while a draft is dirty | 1 |
-| EC-43 | Session expires mid-consultation; doctor returns to a login screen holding unsaved text | High | Critical | Do not expire while a draft is actively being edited; restore the draft on re-login. A timeout that eats a consultation gets switched off entirely — the worse security outcome | 1 |
-| EC-44 | Two browser tabs open on the same consultation | Med | Critical | Detect the second editing tab and make it read-only with a clear message. Last-write-wins silently discards the other tab's typing | 1 |
-| EC-45 | Double-click on Finalize & Print creates two visits or two prescriptions | High | Major | Idempotent submit: disable on first click, plus server-side de-duplication | 1 |
-| EC-46 | Back button mid-consultation | Med | Major | Draft is already saved; navigating forward restores it | 1 |
-| EC-47 | Clock crosses midnight mid-consultation | Low | Major | `clinic_date` is fixed when the draft opens and does not move; `finalized_at` is the true instant. Store both, or the visit vanishes from "today" | 1 |
-| EC-48 | DST shift or device timezone change affecting appointment times | Low | Major | Store instants; render in one clinic timezone configured once. Never render in browser-local time | 1 |
-| EC-49 | Same doctor on two devices (clinic PC and laptop) | Low | Major | Server is authoritative; drafts sync on load. Not offline-capable (out of scope). Availability depends on OQ-6 | 1 |
+| E-40 | **Two browser tabs on the same consultation; last write wins silently** `[DI]` | Med | Critical | Single-user does not mean single-tab. Detect a second tab on the same visit and make it read-only with an explicit banner. Silent last-write-wins is unacceptable for clinical content | 1 |
+| E-41 | **Session expires mid-consultation with unsaved typing** `[DI]` | High | Critical | Never discard on expiry: re-authenticate in place and keep the draft. Idle timeout must be long enough for a real consultation (C-44) | 1 |
+| E-42 | **Accidental tab close / back button / refresh during entry** `[DI]` | High | Critical | Autosave (REC-1) plus a browser beforeunload warning. This is the highest-frequency loss path in the product (C-37) | 1 |
+| E-43 | **Double-click on Save/Finalize creates two visits or two prescriptions** `[DI]` | High | Major | Disable on submit + idempotent commit. Cheap to build, ugly and confusing if missed | 1 |
+| E-44 | Clock crosses midnight mid-consultation — which date owns the visit? | Low | Major | Visit date = `started_at`, fixed at draft creation and never recomputed at finalize. State it explicitly, or two reports will disagree | 1 |
+| E-45 | Daylight-saving shift moves a scheduled appointment time | Low | Minor | Store instants; render in clinic-local time. Single clinic, so exposure is small | 1 |
+| E-46 | Two tabs registering the same new patient simultaneously | Low | Major | Covered by the E-25 duplicate check plus idempotent create | 1 |
 
-### 8.7 Failure and recovery
+### 8.7 Failure & recovery
 
-**Data integrity:** **Silent loss** in its purest form. EC-51 is the single most dangerous item in this review, because nothing surfaces it until a restore is needed.
-
-| ID | Scenario | Likelihood | Impact | Proposed handling | Phase |
+| ID | Scenario | Lik. | Impact | Proposed handling | Phase |
 |---|---|---|---|---|---|
-| EC-50 | Network drops on save during a consultation | High | Critical | Local buffering, retry, and an unmistakable "not saved" indicator. Never show success optimistically | 1 |
-| EC-51 | **Automated backup fails silently** | Med | Critical | Visible backup status with a last-success timestamp on the home screen, and a warning after N missed cycles. A backup nobody checks is a backup that does not exist | 1 |
-| EC-52 | Restore from backup — what is lost, and who verifies? | Med | Critical | Documented recovery objective (B-3) plus a **rehearsed restore before go-live**, owned by whoever OQ-6 names | 1 |
-| EC-53 | Power cut mid-consultation | Med | Critical | Loss bounded by the autosave interval declared in B-3 | 1 |
-| EC-54 | Storage full | Low | Critical | Free-space monitoring with early warning; a failing write must fail loudly, never silently truncate | 1 |
-| EC-55 | Partially written or corrupted record | Low | Critical | Visit + vitals + medication lines written as one transactional unit | 1 |
-| EC-56 | Print dialog cancelled — is the prescription "issued"? | High | Major | The app cannot detect this. Treat as "generated" and make reprint from the visit trivial, so the doctor never re-enters data (D-4) | 1 |
-| EC-57 | PDF generation fails or produces a blank file | Med | Major | Explicit error; never leave the user unsure whether a file was written | 1 |
-| EC-58 | Server error after the doctor clicked print | Med | Major | Write the snapshot before rendering, so the record survives even when rendering does not | 1 |
+| E-47 | **Network or server error on save; doctor believes it saved** `[DI]` | High | Critical | Explicit save-state indicator ("Saved 10:42" / "Not saved — retrying"). Never show a success state for an unconfirmed write | 1 |
+| E-48 | **Backup fails silently for weeks** `[DI]` | Med | Critical | Visible last-successful-backup status in the UI, and a loud warning past a threshold. An unmonitored backup is not a backup (C-43) | 1 |
+| E-49 | **Power cut mid-consultation** `[DI]` | Med | Critical | Draft autosave bounds the loss to the RPO in §5.3; on relaunch, offer to resume the draft rather than starting fresh | 1 |
+| E-50 | **Restore from backup — what was lost, and does anyone know?** `[DI]` | Low | Critical | Define RPO, and **test the restore before go-live**. An untested restore is an assumption, not a control | 1 |
+| E-51 | Server error *after* the doctor clicked Print | Med | Major | Finalize commits before rendering; print is a downstream, retryable step against an already-permanent record | 1 |
+| E-52 | Print dialog cancelled — is the prescription "issued"? | High | Major | Yes: the visit is finalized at commit; print/reprint count is tracked separately. Reprint must be available and logged | 1 |
+| E-53 | PDF generation fails | Med | Minor | Error with retry; never leave a half-written file or an ambiguous success | 1 |
+| E-54 | Disk/storage full | Low | Critical | Fail loudly on write; never degrade into silent partial saves | 1 |
 
-### 8.8 Input validation, encoding and misuse
+### 8.8 Input validation, encoding & misuse
 
-**Data integrity:** **Silent loss** (EC-61 mangles rows, EC-62 renders names unreadable) and **Duplicate** (EC-65 whitespace variants).
-
-| ID | Scenario | Likelihood | Impact | Proposed handling | Phase |
+| ID | Scenario | Lik. | Impact | Proposed handling | Phase |
 |---|---|---|---|---|---|
-| EC-59 | CSV formula injection — a field beginning `=`, `+`, `-`, `@` | Med | Critical | Neutralise the prefix on export. Real exposure: the file is opened in a spreadsheet on the clinic PC | 1 |
-| EC-60 | Free text rendered into printed HTML (angle brackets, quotes) | Med | Critical | Escape on output everywhere, including the print view. Unescaped output is both an injection risk and a garbled clinical document | 1 |
-| EC-61 | Complaint text containing commas or newlines breaks CSV rows | High | Major | Correct RFC-style quoting and escaping. A silently mangled export is worse than a failed one | 1 |
-| EC-62 | Non-Latin and mixed-script names, combining characters | High | Major | Full Unicode storage, rendering and search without case/diacritic surprises. The print font must actually carry the script — a name printing as boxes on a prescription is a real failure | 1 |
-| EC-63 | Phone numbers with country codes, spaces, dashes or letters | High | Major | Store as entered; normalise a digits-only form for search so "+91 98765 43210" and "9876543210" both match | 1 |
-| EC-64 | Vitals typed with units or ranges ("120/80 mmHg", "98.6F") | Med | Major | BP as two numeric fields, temperature as value + unit selector. Free-text vitals make history incomparable across visits | 1 |
-| EC-65 | Leading/trailing whitespace and smart quotes pasted into names | High | Minor | Trim and normalise on save — otherwise " Ramesh" and "Ramesh" become two patients, feeding EC-27 | 1 |
-| EC-66 | Emoji or pasted rich formatting in complaints | Low | Minor | Accept and store the text; strip formatting on paste so the print layout survives | 1 |
+| E-55 | **Complaint containing a comma or newline splits the CSV row** `[DI]` | High | Major | Correct RFC-4180 quoting and escaping. This corrupts the export silently — the file opens fine and the columns are wrong | 1 |
+| E-56 | **CSV formula injection** (`=`, `+`, `-`, `@` at field start executes in Excel) `[DI]` | Med | Critical | Prefix-escape on export. Low likelihood via a doctor's own typing, **Critical because the file carries PHI and executes on someone else's machine** | 1 |
+| E-57 | Non-Latin / mixed-script names; emoji or smart quotes pasted into complaints | High | Major | Unicode end to end: storage, search, print, and CSV with a BOM so Excel does not mangle it | 1 |
+| E-58 | Free text rendered into printed HTML (`<`, `&`, script-like content) | Med | Major | Escape on output. Injection matters less with one user; **a garbled prescription is a clinical document defect** regardless | 1 |
+| E-59 | Phone with country code, spaces, dashes, or letters | High | Major | Store as entered, index a normalised digits-only form for search; do not reject formats the doctor uses | 1 |
+| E-60 | Leading/trailing whitespace producing near-duplicate names | High | Major | Trim and collapse internal whitespace on save — a cheap and large contributor to E-25 | 1 |
 
-### 8.9 Privacy, access and audit
+### 8.9 Privacy, access & audit
 
-**Data integrity:** **Mutable history** (EC-69, no trail) plus exposure risks that are not integrity failures but are the most consequential items for a clinic.
-
-| ID | Scenario | Likelihood | Impact | Proposed handling | Phase |
+| ID | Scenario | Lik. | Impact | Proposed handling | Phase |
 |---|---|---|---|---|---|
-| EC-67 | Screen left unlocked between patients | High | Critical | App-level auto-lock, re-auth to unlock, draft preserved (EC-43). The most likely real-world breach in a small clinic | 1 |
-| EC-68 | Exported CSV/PDF sits unencrypted in Downloads indefinitely | High | Critical | Scoped exports (D-6), confirmation naming the record count, audit entry, plus a stated operational instruction to the clinic. The app cannot control the filesystem — say so rather than pretending otherwise | 1 |
-| EC-69 | No audit trail — "what was prescribed, when, and was it changed?" | Med | Critical | Minimal append-only audit log: finalize, amend, archive, delete, export, login | 1 |
-| EC-70 | Single-user password lost — who resets it? | Low | Critical | There is no second user. A defined recovery path is required, or the clinic can be locked out of every record it owns | 1 |
-| EC-71 | Right to be forgotten vs. required medical-record retention | Low | Critical | **The BRD is silent and I will not invent a jurisdiction.** The owner states a retention period and deletion policy before go-live; archive-not-delete (EC-34) is the safe interim | 1 (policy) |
-| EC-72 | Browser autofill or cached form data on a shared clinic PC | Med | Major | Disable autocomplete on patient fields; ensure the login form does not offer to store credentials on a shared machine | 1 |
-| EC-73 | Patient data in browser history, local storage or the back-button cache | Med | Major | Avoid patient identifiers in URLs; clear cached drafts on logout; no-store on sensitive views | 1 |
-| EC-74 | Doctor lets a family member or assistant use the logged-in session | Med | Major | Out of technical scope for single-user Phase 1; the audit log at least records that something happened | accepted |
-| EC-75 | Prescription printed to a shared or networked printer | Med | Major | Outside the app's control; flag as an operational risk the clinic owns | accepted |
+| E-61 | **Exported CSV/PDF sitting unencrypted in Downloads** | High | Critical | Cannot be prevented by the app once the file exists. Warn at export, log every export (C-48), and default export scope to the narrowest useful selection rather than the whole database | 1 |
+| E-62 | **Screen left unlocked between patients, full history on display** | High | Critical | Short idle screen-lock that blurs PHI but preserves the in-progress draft (E-41). Also governs the recent-patients list (C-36) | 1 |
+| E-63 | **No record of what was prescribed, when, or what changed** `[DI]` | High | Critical | Minimal append-only trail on ~6 event types (§5.7). This is the record that answers questions asked years later | 1 |
+| E-64 | Prescription printed to a shared or networked printer | Med | Major | Out of the app's control; name it as an operational risk and note it in go-live guidance | accepted |
+| E-65 | Browser autofill / cached form data on the clinic machine | Med | Major | Disable autocomplete on patient fields; do not persist PHI in local storage beyond the active draft | 1 |
+| E-66 | Right to erasure vs. required medical-record retention | Low | Major | Genuine legal conflict; the owner must state a retention period and an erasure stance (C-48). Deactivate-not-delete (E-33) keeps the option open | later |
+
+**Consciously not handling in Phase 1:** see the parking-lot table in §11. That table is the complete list — nothing deferred appears anywhere else in this document, and its rows are not restated as a separate closing list.
 
 ---
 
 ## 9. Risk register
 
-Ordered by **build-readiness first** (Blockers lead), then likelihood × impact within each band — because a Blocker stops work regardless of how elegantly the rest is written. Rubric in §3.
+Ordered by **build-readiness first**, then likelihood × impact. Every row is a Blocker or a Critical-impact item; the rest live in §4 and §8.
 
-| ID | Risk | Underlying gap (build-readiness) | Likelihood | Impact | Data integrity | Mitigation |
-|---|---|---|---|---|---|---|
-| RISK-1 | In-progress consultation lost to refresh, crash or session expiry — directly violates "No data loss" | C-19 **Blocker** | High | Critical | Silent loss | R-1 |
-| RISK-2 | Duplicate patient records split clinical history | C-13 **Blocker** | High | Critical | Duplicate | R-2 |
-| RISK-3 | Mandatory vitals with no exception path drive fabricated values into clinical records | C-20 **Blocker** | High | Critical | Fabrication / silent loss | R-3 |
-| RISK-4 | Deleting a patient destroys or detaches their visit history | C-14 **Blocker** | Med | Critical | Orphan | R-4 |
-| RISK-5 | Two-tab editing silently discards work | C-19 **Blocker** | Med | Critical | Silent loss | R-1 |
-| RISK-6 | No record of what was printed; paper and record diverge after an edit | C-27 **Blocker** | High | Major | Mutable history | R-5 |
-| RISK-7 | Prescription cannot be rendered at all — no clinic-profile entity exists | C-25 **Blocker** | High | Major | None | R-6 |
-| RISK-8 | Appointment status has no link to the visit that justifies it; daily list and history never reconcile | C-18 **Blocker** | High | Major | Orphan | R-7 |
-| RISK-9 | Single-user credential loss locks the clinic out of all records, permanently | C-35 **Blocker** | Low | Critical | Silent loss (total) | R-8 |
-| RISK-10 | Deployment model unstated, so backup, encryption-at-rest and outage behaviour are each built on an unexamined assumption | C-4 / C-36 Needs decision | High | Critical | Silent loss | R-9 |
-| RISK-11 | Silent backup failure discovered only when a restore is needed | C-33 Needs decision | Med | Critical | Silent loss | R-10 |
-| RISK-12 | Unattended unlocked screen exposes every patient record | C-34 Needs decision | High | Critical | Exposure | R-11 |
-| RISK-13 | Unencrypted broad export left on the clinic PC; CSV silently mangled or weaponised | C-6 Needs decision | Med | Critical | Silent loss + exposure | R-12 |
-| RISK-14 | No audit trail; cannot evidence what was prescribed or changed | C-37 Needs decision | Med | Critical | Mutable history | R-13 |
-| RISK-15 | No retention or deletion policy; the clinic cannot answer a deletion request or a retention obligation | C-38 Needs decision | Low | Critical | Mutable history / Orphan | R-14 |
-| RISK-16 | "Open Questions: None" causes every decision above to be made implicitly, in code | C-41 Needs decision | High | Major | All four | R-15 |
-| RISK-17 | 2–3 minute target treated as a pass/fail gate against an unrealistic workflow | C-8 Needs decision | High | Major | Silent loss (rushed abandonment) | R-16 |
-| RISK-18 | Undefined appointment transitions built inconsistently | C-17 Needs decision | Med | Major | Mutable history | R-7 |
-| RISK-19 | Prescription print layout breaks on overflow or across the three supported browsers | C-40 Ready | High | Major | Silent loss (clipped content) | R-17 |
-| RISK-20 | Search too slow or too coarse to be used before registration, defeating duplicate prevention | C-9 Ready | Med | Major | Duplicate | R-18 |
-| RISK-21 | Age stored without a capture date silently misrepresents the patient years later | C-12 Needs decision | High | Minor | Mutable history | R-19 |
-| RISK-22 | Untestable success criteria ("smooth", "minimal training", "80% paper") signed off charitably, hiding real usability failures | C-10 / C-11 Needs decision | Med | Minor | None | R-16 |
+| ID | Risk | Source | Lik. | Impact | Integrity | Build-ready | Mitigation |
+|---|---|---|---|---|---|---|---|
+| RSK-1 | No consultation lifecycle or commit model — "no data loss" is unbuildable and untestable | C-27, C-42 | High | Critical | Silent loss, Orphan | Blocker | REC-1 |
+| RSK-2 | No patient identity rule — histories split across duplicate records, decisions made on half a history | C-23 | High | Critical | Duplicate | Blocker | REC-2 |
+| RSK-3 | Mandatory vitals with no escape drives paper workarounds or fabricated values into permanent records | C-28 | High | Critical | Silent loss | Blocker | REC-3 |
+| RSK-4 | Prescription header has no source entity; the product's main output cannot be produced | C-32 | High | Critical | — | Blocker | REC-4 |
+| RSK-5 | Deployment model unstated — encryption, backups, sessions and outage behaviour all undecidable | C-6, C-9, C-45 | High | Critical | Silent loss | Blocker | REC-5 |
+| RSK-6 | Appointment state machine undefined; illegal transitions can detach real consultations | C-24, C-26 | High | Major | Mutable history | Blocker | REC-6 |
+| RSK-7 | Patient edit/delete undefined — history can be orphaned or silently rewritten | C-17 | Med | Critical | Orphan, Mutable history | Blocker | REC-7 |
+| RSK-8 | Backups unmonitored, restore never tested | C-43 | Med | Critical | Silent loss | Needs decision | REC-8 |
+| RSK-9 | No audit trail on prescriptions, amendments or exports | C-48 | High | Critical | Mutable history | Needs decision | REC-9 |
+| RSK-10 | Export carries unencrypted PHI out of the app, with injection and quoting defects | C-7, C-38, E-56, E-61 | Med | Critical | — | Needs decision | REC-10 |
+| RSK-11 | Session expiry / tab close destroys in-progress consultation content | C-44, E-41, E-42 | High | Critical | Silent loss | Needs decision | REC-1, REC-11 |
+| RSK-12 | Wrong-patient selection from a name-only picker | E-28 | Med | Critical | — | Ready | REC-12 |
+| RSK-13 | Contact optional while phone is a primary search key | C-21, C-22 | High | Major | Duplicate | Needs decision | REC-2, REC-13 |
+| RSK-14 | 2–3 minute target unmeasurable; team optimises the wrong thing or declares success arbitrarily | C-11 | High | Major | — | Needs decision | REC-14 |
+| RSK-15 | "Open Questions: None" suppresses the pre-build decision conversation | C-49 | High | Major | — | Blocker (process) | REC-15 |
 
 ---
 
-## 10. Prioritized recommendations
+## 10. Recommendations — prioritized by build-readiness
 
-**Build-readiness drives this order, not clarity.** Blocker-clearing work first — nothing downstream can be built cleanly ahead of it. Then owner decisions, then Ready improvements sequenced by risk reduced per unit of effort.
+### Tier 1 — must close before build starts (all Blockers)
 
-### Band A — Clears a Blocker
-
-| ID | Recommendation | Effort | Clears | Addresses | Data integrity |
-|---|---|---|---|---|---|
-| R-1 | Adopt the autosave-draft → finalize → append-only-amendment consultation lifecycle (D-1 D), including two-tab detection and an unload guard | M | C-19 | RISK-1, RISK-5; EC-33, EC-42, EC-43, EC-44 | Closes Silent loss + Mutable history |
-| R-2 | Make registration reachable only from a search that returned no match, plus a near-match warning on save (D-2 D+C) | M | C-13 | RISK-2; EC-27–EC-31, EC-65 | Closes Duplicate |
-| R-3 | Replace hard-blocking mandatory vitals with "value **or** explicit not-recorded reason"; structure BP as two numeric fields and temperature as value + unit (D-7 C) | S | C-20 | RISK-3; EC-19, EC-64 | Removes fabrication vector |
-| R-4 | Define the patient record lifecycle: archive, never hard-delete, for any patient with visits | S | C-14 | RISK-4; EC-29, EC-34 | Closes Orphan |
-| R-5 | Record every prescription issue with an immutable printed snapshot; flag reprints and amended reissues (D-4 C) | M | C-27 | RISK-6; EC-35, EC-56, EC-58 | Closes Mutable history on the printed artefact |
-| R-6 | Add the ClinicProfile entity and force its setup on first run; block printing until complete | S | C-25 | RISK-7; EC-1, EC-15 | None (unblocks the deliverable) |
-| R-7 | Add the optional appointment ↔ visit link that auto-completes the appointment on finalize, and adopt the §7.2 state machine including No-show → Completed and the Overdue display state | M | C-18 | RISK-8, RISK-18; EC-38, EC-39, EC-40 | Closes Orphan |
-| R-8 | Define a credential recovery path for the single user before go-live | S | C-35 | RISK-9; EC-70 | Prevents total Silent loss |
-
-### Band B — Needs an owner decision, then build
-
-| ID | Recommendation | Effort | Addresses | Data integrity |
+| ID | Recommendation | Closes | Effort | Trade-off, stated honestly |
 |---|---|---|---|---|
-| R-9 | Owner names the deployment model and the backup owner (D-8 / OQ-6); C-33 and C-36 are then rewritten against it, including whether exports and generated PDFs are covered by "at rest" | S (owner) + M | RISK-10; EC-49, EC-52, EC-68 | Silent loss |
-| R-10 | Make backup status visible with a last-success timestamp; rehearse a full restore before go-live; state a recovery objective in place of "No data loss" (B-3) | M | RISK-11; EC-51, EC-53, EC-54 | Closes Silent loss |
-| R-11 | App-level auto-lock that preserves the in-progress draft; disable autofill on patient fields; set session policy from the device answer (OQ-12) | S | RISK-12; EC-67, EC-72, EC-73 | Exposure |
-| R-12 | Scope exports to the current view, confirm with a record count, write an audit entry, escape CSV correctly and neutralise formula prefixes (D-6 B+C+F) | M | RISK-13; EC-59, EC-61, EC-68 | Closes Silent loss in the export artefact |
-| R-13 | Add a minimal append-only audit log: finalize, amend, archive, delete, export, login | M | RISK-14; EC-69, EC-30, EC-36, EC-37 | Closes Mutable history |
-| R-14 | Owner states a retention period and deletion policy; archive-not-delete stands as the interim default | S (+ owner) | RISK-15; EC-71 | Mutable history / Orphan |
-| R-15 | Replace "Open Questions: None" in the BRD with the §12 table | S (owner) | RISK-16; B-4 | All four |
-| R-16 | Restate the 2–3 minute criterion as a median for a 1–2 medication visit; add an explicit keyboard-only completion path requirement; replace "80% paper", "smooth" and "minimal training" with countable proxies (B-1, B-5) | S (owner) | RISK-17, RISK-22 | Silent loss (rushed abandonment) |
-| R-19 | Store age-at-registration with its capture date alongside optional DOB; support sub-year age display (D-3 C) | S | RISK-21; EC-12, EC-14, EC-21 | Closes Mutable history |
+| **REC-1** | **Define the Visit entity and its lifecycle: autosaved draft → finalize at print → immutable, corrections as dated amendments.** Adopt options C + F. | RSK-1, RSK-11 | L | Amendments make history longer and slightly harder to read than simple edits. A doctor who wants to "just fix a typo" will find append-only mildly annoying. That friction is the price of a record that can be trusted years later — and I would pay it. |
+| **REC-2** | **Set a patient identity rule and a duplicate check at registration** (name similarity + phone, or name + DOB), with `merged_into` pointers instead of deletion. | RSK-2, RSK-13 | M | Fuzzy matching produces false positives, so a warn-don't-block design will occasionally slow registration by one click. Blocking would be worse. Full merge is deferred (§11) — the accepted risk is that duplicates accumulate until the tooling exists. |
+| **REC-3** | **Change mandatory vitals to mandatory-or-reason.** (§5.2 — this is a BRD change and needs the owner's explicit acceptance.) | RSK-3 | S | Weakens the BRD's stated guarantee that every consultation has vitals. In exchange the data that *is* there is real. A guarantee that produces fabricated values is worth less than an honest gap. |
+| **REC-4** | **Add a ClinicProfile / settings entity and a first-run setup gate** before any prescription can print. | RSK-4 | S | Adds a screen the BRD never mentioned — a small scope addition, and unavoidable: without it the flagship output cannot be produced. |
+| **REC-5** | **Make the deployment model an explicit written decision** (clinic PC / LAN / cloud) and derive encryption, backup destination, session policy and outage behaviour from it. | RSK-5 | S (decision) / M (consequences) | This is a one-meeting decision that unblocks four other items. Deferring it means building three security requirements on a guess. |
+| **REC-6** | **Draw the appointment state machine, including Appointment ↔ Visit linkage, walk-ins (option D) and the No-show → Completed transition.** | RSK-6 | M | Option D adds auto-created appointment rows the daily list must handle. It also removes a whole screen from the most common path, which is a net win against the time target. |
+| **REC-7** | **Define patient edit and deactivate semantics: no hard delete while visits exist; demographic edits recorded, not silently overwritten.** | RSK-7 | M | The doctor loses a "delete" button they may expect. Deactivate plus a visible reason covers every legitimate use except legal erasure, which is deferred. |
+| **REC-15** | **Replace "Open Questions: None" with the §12 table.** | RSK-15 | S | Costs the BRD its appearance of completeness. That appearance is the risk. |
 
-### Band C — Ready to build now; sequence by risk reduced per unit of effort
+### Tier 2 — needs an owner decision, then build
 
-| ID | Recommendation | Effort | Addresses | Data integrity |
-|---|---|---|---|---|
-| R-17 | Specify the print layout: multi-page rules, repeating header, page numbering, long-text wrapping, script-capable fonts, and verified print output on Chrome, Edge and Safari | M | RISK-19; EC-10, EC-11, EC-15, EC-62 | Closes Silent loss (clipped content) |
-| R-18 | Type-ahead search under 300ms with digits-normalised phone matching and diacritic-insensitive name matching; visit-history load under 2s (B-6) | M | RISK-20; EC-7, EC-31, EC-63 | Supports Duplicate prevention |
-| R-20 | Add a pre-finalize review screen showing the medication list exactly as it will print | S | EC-9, EC-23 | None (review, not validation) |
-| R-21 | Purposeful empty states everywhere, each offering the next action | S | EC-4, EC-5, EC-6, EC-7, EC-8 | None |
-| R-22 | Escape all free text on output including the print view; trim and normalise whitespace on save; strip formatting on paste; state max lengths with counters | S | EC-11, EC-60, EC-65, EC-66 | Closes Duplicate (whitespace variants) |
-| R-23 | Fix `clinic_date` at draft creation, store instants, render in one configured clinic timezone | S | EC-47, EC-48 | Prevents misdated records |
-| R-24 | Pin patient identity on screen throughout the consultation, and show a disambiguator (phone tail + last visit) in every patient picker | S | EC-28, EC-30; C-30 | Reduces wrong-patient records |
+| ID | Recommendation | Closes | Effort |
+|---|---|---|---|
+| **REC-8** | Visible last-successful-backup status, alert on failure, and a **rehearsed restore before go-live**. | RSK-8 | M |
+| **REC-9** | Minimal append-only audit trail on ~6 events (finalize, amend, print/reprint, demographic edit, deactivate, export). | RSK-9 | M |
+| **REC-10** | Export hardening: RFC-4180 quoting, formula-injection escaping, UTF-8 BOM, narrowest-scope default, export warning, export logged. | RSK-10 | M |
+| **REC-11** | Session policy sized for a real consultation: in-place re-auth that preserves the draft; idle **screen lock** separated from session **expiry**. | RSK-11 | M |
+| **REC-13** | Decide whether phone is required at registration; if optional, make the search consequence visible on the profile. | RSK-13 | S |
+| **REC-14** | Split the 2–3 minute target into system overhead (≤30 s, instrumented) and end-to-end against a defined typical-visit fixture. (§5.1 — BRD change.) | RSK-14 | S |
+
+### Tier 3 — Ready now, cheap, disproportionately valuable
+
+| ID | Recommendation | Closes | Effort |
+|---|---|---|---|
+| **REC-12** | Never show name alone in any patient picker — always name + phone tail + age/DOB + last visit date. | RSK-12 | S |
+| **REC-16** | Keyboard-first input (option E): `/` to search, section jumps, `Ctrl+Enter` to finalize, tested tab order. | C-40, RSK-14 | S |
+| **REC-17** | Save-state indicator ("Saved 10:42" / "Not saved — retrying") plus beforeunload guard and double-submit protection. | E-42, E-43, E-47 | S |
+| **REC-18** | Trim and normalise whitespace and phone formats on save. | E-59, E-60 | S |
+| **REC-19** | Name the concrete numbers the BRD leaves vague: p95 latency at a stated data volume, and a scalability ceiling (C-46) so nobody over-engineers. | C-12, C-41, C-46 | S |
+
+**Sequencing note:** REC-5 first (it unblocks four others in one meeting), then REC-1 and REC-4 (nothing ships without them), then REC-2, REC-3, REC-6, REC-7. Tier 3 can run in parallel throughout — REC-12 and REC-17 are each under a day and each remove a Critical-impact failure.
+
+**Top pick: REC-1.** It is the only recommendation that converts the BRD's most important promise ("No data loss") from a slogan into something QA can fail a build over.
+**Its top unresolved edge case: E-31** — the abandoned draft. If the doctor starts consultations for three patients and finalizes two, the third draft must be visible and clearly *not* a completed visit, forever. Get that display wrong and the safety mechanism becomes a source of ambiguous records — which is the exact problem it was built to prevent.
 
 ---
 
-## 11. Phase 2+ / parking lot
+## 11. Parking lot — Phase 2+ (the single home for everything deferred)
 
-**Everything deferred lives here and only here** — including the items marked `accepted` in §8, which point into this table rather than forming a second list.
+**This table is this review's complete "Consciously not handling in Phase 1" statement.** Nothing deferred is listed anywhere else in this document, and these rows are deliberately not restated as a separate closing list — one item, one home.
 
 | Item | Why it's deferred | Pull-forward condition | Accepted risk while deferred |
 |---|---|---|---|
-| P-1 Duplicate merge tooling (re-parent visit history) | Real design effort; prevention (R-2) removes most of the need | A duplicate pair with visits on *both* records occurs more than twice | A split history exists until manually reconciled; the doctor may decide on an incomplete record. Archive + pointer note is the interim (EC-29) |
-| P-2 Follow-up alerts and reminders | Explicitly out of scope in the BRD | Owner reprioritises | A forward-dated appointment may simply be forgotten (EC-41) |
-| P-3 Password-protected PDF / passphrase-protected CSV | Friction now, and the passphrase ends up on a sticky note | Exports routinely leave the clinic premises | Exported files are readable by anyone with access to the machine (EC-68) |
-| P-4 Receptionist / multi-user access | Explicitly out of scope | Clinic hires front-desk staff | Session sharing is invisible to the system (EC-74) |
-| P-5 Structured diagnosis coding (ICD or similar) | Free text meets the Phase 1 need; coding costs entry time against the 2–3 minute target | Reporting or referral requirements appear | History searchable only as free text; no aggregation |
-| P-6 Medication master list / drug-name autocomplete | Third-party data dependency, and it edges toward clinical-advice territory | Doctor reports repeatedly typing the same drug names | Spelling variants make history search unreliable |
-| P-7 Advanced analytics and reporting | Explicitly out of scope | Owner asks for volume or trend reporting | No visibility into clinic patterns; scoped CSV export is the manual workaround |
-| P-8 Offline mode | Explicitly out of scope | Clinic connectivity proves unreliable in practice | A network outage stops consultations; EC-50 buffers only briefly. Severity depends on OQ-6 |
-| P-9 Mobile app | Explicitly out of scope | Doctor consults away from the clinic desk | Responsive browser use untested on small screens |
-| P-10 Lab / pharmacy integration, billing, insurance | Explicitly out of scope | Not before Phase 2 | Those workflows stay on paper or in other tools |
-| P-11 Patient-facing access to their own records | Never in scope; large privacy surface | A regulatory requirement appears | Patients hold only the printed prescription |
-| P-12 Pagination and virtualised lists | Volume does not justify it for one physician | A daily list or history routinely exceeds a few hundred rows | Rendering slows on unexpectedly large lists (EC-18) |
-| P-13 Vitals trend charting across visits | Display-only; adds no data | Doctor asks to see BP over time | Trends must be read visit-by-visit |
-| P-14 End-of-day reconciliation view (Scheduled with no visit) | A nicety once R-7 keeps statuses honest | Doctor reports stale Scheduled rows accumulating | Overdue rows accumulate in the daily list until resolved manually |
-| P-15 Configurable prescription templates / multiple print formats | One well-tested layout beats several fragile ones | Doctor needs a second document type | Print layout fixed; changes require a code change |
-| P-16 Full field-level change history beyond the R-13 event log | Disproportionate for one user | An external audit or a dispute occurs | Audit answers "what happened" but not always "exactly what changed" |
-| P-17 Shared-printer and unattended-print controls | Outside the application's control entirely | Clinic layout changes so the printer is not within the doctor's sight | A printed prescription may be collected by the wrong person (EC-75) |
+| **Duplicate merge tooling** (combining two patients' visit histories) | Genuinely hard: merge semantics, undo, and audit. Detection (REC-2) captures most of the value at a fraction of the cost | More than ~5 confirmed duplicate pairs in the first 3 months | Duplicates accumulate. Mitigated by `merged_into` pointers so no history is destroyed and merge stays possible later |
+| **Receptionist / multi-user access** | BRD out of scope (L60) | Doctor hires front-desk staff | Doctor performs all data entry, competing with the 2–3 minute target during busy periods |
+| **Follow-up alerts / reminders** | BRD out of scope (L69) | Doctor reports missed follow-ups after go-live | The prescription's own Duration field creates an expectation the product will not meet |
+| **Billing / invoicing, insurance, lab & pharmacy integration** | BRD out of scope (L61–63) | A separate business case | Billing stays on paper or a separate tool; no single view of a patient encounter |
+| **AI-based diagnosis or recommendations** | BRD out of scope (L64). Also outside this review's remit — no clinical advice | Not in the foreseeable roadmap | None. Correct exclusion |
+| **Offline functionality** | BRD out of scope (L65) | Deployment is off-site **and** the clinic experiences repeated outages | Under a cloud deployment, a network outage stops the clinic (§5.6). Requires the owner's explicit written acceptance |
+| **Mobile app** | BRD out of scope (L66) | Doctor does home visits or ward rounds | Consultation entry is tied to the clinic machine |
+| **Advanced analytics / reporting** | BRD out of scope (L67) | Doctor asks a question CSV export cannot answer | CSV export is the only analysis path; ad-hoc questions need manual spreadsheet work |
+| **Multi-doctor / multi-clinic** | BRD out of scope (L68) | A second clinician joins | Data model should avoid actively blocking it, but must not be built for it (C-46) |
+| **Medicine master list / autocomplete** | Needs a curated data source and maintenance; free text ships now | Medication history search proves unreliable in practice, or the doctor asks for it | Spelling variants fragment medication history (C-31). Real but tolerable at one-clinic scale |
+| **Prefill from last visit (option H)** | Buildable in Phase 1 but its failure mode is a wrong medication on a real prescription; should not ship alongside the lifecycle work | Lifecycle (REC-1) is shipped and stable, and repeat patients are a measured majority | Repeat consultations stay slower than they need to be |
+| **Structured complaints / coded diagnosis (ICD-style)** | Free text is faster in a live consultation and matches the BRD | A reporting or referral requirement appears | Complaints and diagnoses are not aggregable or reliably searchable |
+| **Right-to-erasure workflow** | Conflicts with medical-record retention; needs a legal answer first (C-48, E-66) | A patient makes a formal request, or a retention policy is set | No defined response to an erasure request. Deactivate-not-delete (E-33) keeps the option open |
+| **Leap-year DOB edge (29 Feb age display)** | Theoretical; affects display only, never the stored fact | Never, realistically | A displayed age may be off by a day for a tiny cohort |
+| **Timezone / DST handling beyond clinic-local** | Single clinic, single locale (E-45) | Clinic operates across timezones — i.e. never, under Phase 1 scope | Appointment times shift by an hour twice a year in edge displays |
+| **Shared-printer exposure** (E-64) | Not solvable in software | Clinic moves to a shared-office printer | A printed prescription may be collected by the wrong person. Operational guidance only |
+| **Firefox support** | Not listed in C-47 | Doctor's machine uses it | Unsupported, untested browser; print rendering unverified |
 
 ---
 
 ## 12. Open questions for the product owner
 
-Priority combines severity **with cost to resolve** — a Critical gap that closes with one meeting decision outranks a Major one costing two weeks of design.
+Priority = severity **plus** cost to resolve. A Critical gap that closes with one meeting decision outranks a Major one that costs two weeks of design.
 
-| ID | Question | Cost to resolve | Unblocks | Priority | Blocks build? |
-|---|---|---|---|---|---|
-| OQ-1 | When vitals genuinely cannot be taken, what should happen — hard block, "unable to record" reason, or free override? | Policy call | C-20 **Blocker** | 1 | Yes |
-| OQ-2 | May a finalized consultation be edited after printing, and must the change be visibly marked as an amendment? | Policy call | C-19, C-27 **Blockers** | 2 | Yes |
-| OQ-3 | Can a patient record ever be deleted, or only archived? What happens to their visits? | Policy call | C-14 **Blocker** | 3 | Yes |
-| OQ-4 | What exactly goes in the prescription header and footer — registration number, qualifications, logo, signature block — and which patient fields print? | Policy call | C-25 **Blocker**, C-26 | 4 | Yes |
-| OQ-5 | Can a consultation exist without an appointment, and should finalizing one auto-complete its appointment? | Policy call | C-18 **Blocker** | 5 | Yes |
-| OQ-6 | What is the deployment model — hosted, clinic server, or single PC — and who operates backups? | Policy call (with ops input) | C-4, C-33, C-36 | 6 | Yes |
-| OQ-7 | What is the acceptable loss window for an interrupted consultation — the number that replaces "No data loss"? | Policy call | C-33, C-19 | 7 | Yes |
-| OQ-8 | How is the single user's password recovered if lost? | Design effort | C-35 **Blocker** | 8 | Yes |
-| OQ-9 | Is DOB required, optional, or replaced by age? If age, is age-at-registration + capture date acceptable? | Policy call | C-12 | 9 | Yes |
-| OQ-10 | Is appointment scheduling a time-slot calendar or a simple dated list? Are overlaps and same-day repeats allowed? | Policy call | C-16, C-17 | 10 | No |
-| OQ-11 | What retention period applies to patient records, and is deletion ever permitted? | Policy call (may need legal input) | C-38 | 11 | No |
-| OQ-12 | Is the app used on a shared clinic PC or a private device? (Drives auto-lock, autofill, cache policy.) | Policy call | C-2, C-34 | 12 | No |
-| OQ-13 | Is export limited to the current view, or is a full-database export required — and who may use it, for what? | Policy call | C-6 | 13 | No |
-| OQ-14 | Which of the five medication fields are required, and is diagnosis mandatory before printing? | Policy call | C-23, C-24 | 14 | No |
-| OQ-15 | Is an audit trail in Phase 1 scope, and which events must it cover? | Policy call | C-37 | 15 | No |
-| OQ-16 | What is the exact gender value list, and does it include "unspecified"? | Policy call | C-12 | 16 | No |
-| OQ-17 | What baseline does "80% paper reduction" measure against, and what replaces "smooth" and "minimal training" as testable criteria? | Policy call | C-10, C-11 | 17 | No |
-| OQ-18 | Does "recent patients" mean recently *viewed* or recently *consulted*, and how many are shown? | Policy call | C-29 | 18 | No |
-| OQ-19 | Should duplicate *merge* exist in Phase 1, or is archive-and-re-enter acceptable? | Design effort | C-13 (partial) | 19 | No |
+| ID | Question | Severity | Cost to resolve | Blocks |
+|---|---|---|---|---|
+| **Q-1** | Where does this run — clinic PC, LAN server, or cloud? | Critical | **Policy call** | REC-5, and the whole of security, backup and outage design |
+| **Q-2** | May a consultation be finalized without complete vitals, using a recorded reason? | Critical | **Policy call** | REC-3 |
+| **Q-3** | Are finalized visits immutable with append-only amendments, or freely editable? | Critical | **Policy call** | REC-1 |
+| **Q-4** | What are the clinic header, footer and signature contents, and who supplies the signature image? | Critical | **Policy call** | REC-4 |
+| **Q-5** | Can a consultation exist without an appointment (walk-ins)? | Critical | **Policy call** | REC-6 |
+| **Q-6** | May a patient record ever be hard-deleted, and what is the retention period? | Critical | **Policy call** (with legal input) | REC-7, E-66 |
+| **Q-7** | Is phone number required at registration? | Major | **Policy call** | REC-13, REC-2 |
+| **Q-8** | Is diagnosis required before a prescription may print? | Major | **Policy call** | C-30, E-19 |
+| **Q-9** | Which gender values are offered? | Minor | **Policy call** | C-20 |
+| **Q-10** | Which vitals units (°C/°F), and does the doctor want plausibility warnings — and at what thresholds? | Major | **Policy call** (thresholds are the doctor's to define) | E-12, E-24 |
+| **Q-11** | What exactly is exportable — one visit, one patient, a date range, everything? | Major | **Policy call** | REC-10 |
+| **Q-12** | What is the acceptable data-loss window (RPO), and who is told when a backup fails? | Critical | **Policy call**, then **design + build** | REC-8, §5.3 |
+| **Q-13** | What is the identity rule that makes two patients the same person — and who resolves a flagged duplicate? | Critical | **Design + build** | REC-2 |
+| **Q-14** | Which appointment status transitions are legal, and what happens to yesterday's Scheduled rows? | Major | **Policy call**, then **design + build** | REC-6, E-35, E-37 |
+| **Q-15** | How is the 2–3 minute target measured — clock start, clock stop, and against what content? | Major | **Policy call** | REC-14 |
+| **Q-16** | Is DOB, approximate age, or either acceptable at registration? | Major | **Policy call** | C-19, E-21 |
 
-**Five policy calls — OQ-1, OQ-2, OQ-3, OQ-4, OQ-5 — clear six of the eight Blockers (C-14, C-18, C-19, C-20, C-25, C-27) and are answerable in a single meeting.** The remaining two Blockers need design work, not just a decision: C-13 patient identity (R-2, plus OQ-19) and C-35 credential recovery (OQ-8). That meeting is the highest-leverage hour available to this project.
+**Thirteen of sixteen are one-meeting policy calls, and six of those are Critical.** The BRD is far closer to build-ready than the Blocker count alone suggests — most of the distance is decisions, not engineering. Only Q-13 requires real design work before it can be answered at all.
 
 ---
 
 ## 13. Cross-reference index
 
-The same gap surfaces once as a question for the owner, once as a change for the team, and once as a risk. This maps them so nobody counts a single decision twice.
+The same gap appears three times by design — once as a question for the owner, once as a change for the team, once as a risk on the register. This index makes the overlap explicit so nobody counts one decision as three.
 
-| Open question | Coverage row(s) | Recommendation | Risk | Key edge cases |
+| Open question | Recommendation | Risk | Coverage rows | Key edge cases |
 |---|---|---|---|---|
-| OQ-1 vitals exception | C-20 **Blocker** | R-3 | RISK-3 | EC-19, EC-64 |
-| OQ-2 edit after print | C-19, C-27 **Blockers** | R-1, R-5 | RISK-1, RISK-5, RISK-6 | EC-33, EC-35, EC-56 |
-| OQ-3 delete vs. archive | C-14 **Blocker** | R-4 | RISK-4 | EC-29, EC-34 |
-| OQ-4 header/footer + printed patient fields | C-25 **Blocker**, C-26 | R-6 | RISK-7 | EC-1, EC-15 |
-| OQ-5 appointment ↔ visit link | C-18 **Blocker** | R-7 | RISK-8, RISK-18 | EC-38, EC-39, EC-40 |
-| OQ-6 deployment model + backup owner | C-4, C-33, C-36 | R-9, R-10 | RISK-10, RISK-11 | EC-49, EC-51, EC-52, EC-68 |
-| OQ-7 acceptable loss window | C-33, C-19 | R-1, R-10 | RISK-1, RISK-11 | EC-42, EC-50, EC-53 |
-| OQ-8 password recovery | C-35 **Blocker** | R-8 | RISK-9 | EC-70 |
-| OQ-9 DOB vs. age | C-12 | R-19 | RISK-21 | EC-12, EC-14, EC-21 |
-| OQ-10 scheduling model | C-16, C-17 | R-7 | RISK-18 | EC-32, EC-38, EC-39, EC-41 |
-| OQ-11 retention / deletion | C-38 | R-14 | RISK-15 | EC-71 |
-| OQ-12 shared vs. private device | C-2, C-34 | R-11 | RISK-12 | EC-67, EC-72, EC-73 |
-| OQ-13 export scope | C-6 | R-12 | RISK-13 | EC-59, EC-61, EC-68 |
-| OQ-14 required med fields / diagnosis | C-23, C-24 | R-20 | — | EC-3, EC-23, EC-24 |
-| OQ-15 audit trail scope | C-37 | R-13 | RISK-14 | EC-30, EC-36, EC-69 |
-| OQ-16 gender value list | C-12 | — (build follows the decision) | — | EC-25 |
-| OQ-17 testable success criteria | C-10, C-11, C-8 | R-16 | RISK-17, RISK-22 | — |
-| OQ-18 "recent patients" meaning | C-29 | — (build follows the decision) | — | EC-4, EC-6 |
-| OQ-19 merge in Phase 1 | C-13 **Blocker** | R-2 (prevention), P-1 (cure) | RISK-2 | EC-27, EC-28, EC-29 |
-| — no owner decision needed | C-41 | R-15 | RISK-16 | — |
-| — no owner decision needed | C-40 | R-17 | RISK-19 | EC-10, EC-11, EC-62 |
-| — no owner decision needed | C-5, C-9, C-15 | R-18 | RISK-20 | EC-7, EC-31, EC-63 |
-| — no owner decision needed | C-22 | R-22 | — | EC-60, EC-65, EC-66 |
-| — no owner decision needed | C-28 | R-23 | — | EC-47, EC-48 |
-| — no owner decision needed | C-30 | R-24 | — | EC-28, EC-30 |
-| — no owner decision needed | C-21, C-31 | R-3, R-16 | RISK-3, RISK-17 | EC-13, EC-64 |
-| — no change needed | C-1, C-3, C-7, C-32, C-39 | — | — | — |
+| Q-1 deployment model | REC-5 | RSK-5 | C-6, C-9, C-45 | E-47, E-49 |
+| Q-2 vitals escape | REC-3 | RSK-3 | C-28 | E-18, E-24 |
+| Q-3 immutability / amendments | REC-1 | RSK-1 | C-27, C-42 | E-31, E-32, E-39 |
+| Q-4 clinic header | REC-4 | RSK-4 | C-32 | E-1, E-10 |
+| Q-5 walk-ins | REC-6 (option D) | RSK-6 | C-24, C-27 | E-3, E-29 |
+| Q-6 delete / retention | REC-7 | RSK-7 | C-17, C-48 | E-33, E-66 |
+| Q-7 phone required | REC-13, REC-2 | RSK-13 | C-21, C-22 | E-20, E-27 |
+| Q-8 diagnosis required | — (owner call, then build) | — | C-30 | E-19 |
+| Q-9 gender values | — (owner call) | — | C-20 | E-23 |
+| Q-10 units & plausibility | — (owner call, then build) | — | C-28 | E-12, E-24 |
+| Q-11 export scope | REC-10 | RSK-10 | C-7, C-38, C-39 | E-6, E-55, E-56, E-61 |
+| Q-12 RPO & backup alerting | REC-8 | RSK-8 | C-42, C-43 | E-48, E-49, E-50 |
+| Q-13 patient identity | REC-2, REC-12 | RSK-2, RSK-12 | C-18, C-23 | E-7, E-25, E-26, E-28, E-30, E-60 |
+| Q-14 status transitions | REC-6 | RSK-6 | C-26 | E-34, E-35, E-36, E-37 |
+| Q-15 time-target measurement | REC-14, REC-16 | RSK-14 | C-11, C-40 | — |
+| Q-16 DOB vs age | — (owner call) | — | C-19 | E-9, E-11, E-21 |
+| *(no owner question — build hygiene)* | REC-11, REC-17, REC-18, REC-19 | RSK-11 | C-12, C-37, C-41, C-44, C-46 | E-40, E-41, E-42, E-43, E-57, E-59, E-62 |
+| *(process)* | REC-15 | RSK-15 | C-49 | — |
 
 ---
 
-## 14. Recommendation
+## 14. Data integrity — consolidated
 
-**Build R-1 first.** The autosave-draft → finalize → append-only-amendment lifecycle is the single change that turns "no data loss" into a testable property rather than a slogan, and it costs the doctor nothing against the 2–3 minute target because it adds no clicks to the normal path. It also clears C-19, the Blocker that six other findings depend on.
+**Data integrity:** the four failure modes, and where this review leaves each.
 
-**Top unresolved edge case:** OQ-2 — whether a finalized consultation may be edited after the prescription is printed. Until the owner answers, the boundary between "draft" and "permanent record" is undefined, and audit, reprint, amendment display and history rendering are all blocked behind it.
+- **Duplicate** — *Real and high-likelihood today.* No identity rule (C-23), a shared household phone (E-27), and whitespace-variant names (E-60) all create split histories. REC-2 + REC-12 + REC-18 prevent most; merge tooling is knowingly deferred (§11) with the accepted risk that duplicates accumulate — never that they are destroyed.
+- **Orphan** — *Structural.* The visit entity does not exist in the BRD (C-27), so vitals, complaints, diagnosis and medications have no defined parent, and "Completed" points at nothing verifiable. REC-1 and REC-6 create the parent; REC-7 stops patients being deleted out from under their own visits.
+- **Mutable history** — *Real and unaddressed.* A finalized prescription can silently change after the patient has walked out with paper in hand (C-17, C-26, C-32, C-48), with no trail. REC-1 (immutability + amendments) and REC-9 (audit trail) close it. Storing bare age (C-19) is the quiet member of this class: a fact that corrupts itself with time.
+- **Silent loss** — *The document's largest single exposure.* No save model, no RPO, no crash recovery, no backup monitoring (C-6, C-9, C-42, C-43), plus session expiry and tab close as everyday triggers (E-41, E-42). REC-1, REC-8, REC-11 and REC-17 together turn "No data loss" into a property a test can fail.
 
-**Data integrity:** R-1 closes **Silent loss** (the draft is persisted from the first keystroke and the loss window is bounded and stated) and **Mutable history** (finalized records are immutable; corrections append with a trail). It does not touch **Duplicate** — that is R-2's job — and it introduces one new obligation: drafts must always be visible in history, or an abandoned draft becomes a record nobody knows exists.
-
-**Honest trade-off:** the amendment model makes history rendering more complex and requires the doctor to understand that corrections append rather than overwrite. A doctor who expects "edit" to mean "change it" will find the first amendment surprising and needs one sentence of onboarding. The cheaper alternative (D-1 option C — autosave and finalize, with post-finalize edits simply overwriting) is defensible for a single-user clinic where the doctor is also the only auditor — but it must then be recorded explicitly as an accepted risk with no audit answer, not left unstated.
-
-**Second honest trade-off, at the document level:** this review adds work to a BRD whose greatest virtue is restraint. The Out of Scope section (C-7) is the best-written part of the document and should not be touched. Nothing recommended here adds a Phase 1 feature the doctor asked for; all of it is lifecycle, identity and recovery machinery that the listed features silently assume.
+**The 22 `[DI]`-marked cases are the "corrupts data or loses a record" set:** E-1, E-9, E-10, E-18, E-19, E-25, E-26, E-31, E-32, E-33, E-34, E-40, E-41, E-42, E-43, E-47, E-48, E-49, E-50, E-55, E-56, E-63. Everything else in §8 is recoverable or cosmetic. **If Phase 1 must be cut, cut from the cosmetic set — never from this one.**
 
 ---
 
-## 15. Consciously not handling in Phase 1
+## 15. Handoff
 
-Everything deliberately left out lives in the parking lot (§11) with its reason, its pull-forward condition and the risk accepted in the meantime. That table is the single home for deferred items — the `accepted` markers in §8 (EC-18, EC-41, EC-74, EC-75) point into it rather than forming a second list, because they carry no build work and are risks the clinic absorbs operationally rather than work that was scheduled and dropped.
+This document is brainstorming and analysis. It deliberately stops at entity names and relationships (§6.2) and does not specify field types, constraints, indexes, validation implementations or migrations — those are decisions for implementation design, made by the team that will own them.
+
+**Suggested next step:** run a one-hour decision session against §12. The thirteen policy calls close six Critical items in a single meeting, after which the remaining work is design and build rather than blocked guesswork. Once Q-1 through Q-6 are answered, the brainstorm is done and this should hand off to implementation planning.
