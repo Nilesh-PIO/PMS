@@ -1,17 +1,34 @@
 import { QueryClient } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+import { SESSION_QUERY_KEY } from './features/auth/useSession';
 import { REGISTERED_PATHS, routes } from './routes';
+import { aSession, problemResponse, stubFetch } from './test/testUtils';
 
-function renderAt(path: string) {
+/**
+ * F-1's route-table tests, updated by F-2.
+ *
+ * From F-2 onward everything under `/` sits behind `RequireAuth`, so these tests seed a
+ * session into the query cache. That is not a workaround: it is the state the physician is in
+ * for every one of these screens, and the signed-out case is asserted separately below.
+ */
+function renderAt(path: string, { signedIn = true }: { signedIn?: boolean } = {}) {
+  stubFetch({ '/api/auth/session': () => problemResponse(401) });
+
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, staleTime: 60_000 } },
   });
+  client.setQueryData(SESSION_QUERY_KEY, signedIn ? aSession() : null);
+
   return render(<App client={client} initialEntries={[path]} />);
 }
 
 describe('app shell routing', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('renders the layout chrome on an authenticated route', () => {
     renderAt('/');
 
@@ -34,9 +51,9 @@ describe('app shell routing', () => {
   });
 
   it('renders /login without the app navigation chrome', () => {
-    renderAt('/login');
+    renderAt('/login', { signedIn: false });
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Sign in' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /sign in/i })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();
   });
 
@@ -75,5 +92,28 @@ describe('app shell routing', () => {
     for (const path of REGISTERED_PATHS) {
       expect(declared).toContain(path);
     }
+  });
+});
+
+describe('app shell route guard (F-2)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each(['/', '/patients', '/patients/abc-123', '/visits/abc-123', '/settings/clinic', '/export', '/audit'])(
+    'sends a signed-out visitor from %s to the login screen',
+    (path) => {
+      renderAt(path, { signedIn: false });
+
+      expect(screen.getByRole('heading', { level: 1, name: /sign in/i })).toBeInTheDocument();
+      expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();
+    },
+  );
+
+  it('shows the signed-in user name and a sign-out control in the layout', () => {
+    renderAt('/');
+
+    expect(screen.getByText('doctor')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
   });
 });

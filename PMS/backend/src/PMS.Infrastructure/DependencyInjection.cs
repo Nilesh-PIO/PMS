@@ -3,6 +3,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using PMS.Application.Abstractions;
 using PMS.Infrastructure.Persistence;
+using PMS.Infrastructure.Persistence.Repositories;
+using PMS.Infrastructure.Security;
 
 namespace PMS.Infrastructure;
 
@@ -23,6 +25,10 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        // F-2. Password hashing has no database dependency, so it is registered before the
+        // connection-string branch below and is available in both states.
+        services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
+
         var connectionString = configuration.GetConnectionString(ConnectionStringName);
 
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -41,6 +47,10 @@ public static class DependencyInjection
 
         services.AddScoped<IDatabaseProbe>(sp =>
             new EfCoreDatabaseProbe(sp.GetRequiredService<PmsDbContext>()));
+
+        // F-2. Only registered alongside the DbContext it needs: with no connection string
+        // there is no user store to read, and GET /api/health/db is the endpoint that says so.
+        services.AddScoped<IAppUserRepository, AppUserRepository>();
 
         return services;
     }

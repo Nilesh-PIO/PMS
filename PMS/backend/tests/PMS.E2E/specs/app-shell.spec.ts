@@ -1,13 +1,14 @@
 import { expect, test } from '@playwright/test';
+import { signIn } from './helpers/credentials';
 
 /**
  * F-1 test strategy: "Playwright smoke spec PMS.E2E/app-shell.spec.ts - app loads,
  * unauthenticated user is redirected to /login."
  *
- * The redirect half is authentication behaviour delivered by F-2 (RequireAuth guard) and is
- * marked `fixme` here rather than written as a passing assertion against behaviour that does
- * not exist - a spec that passes today for the wrong reason would stop being a gate the day
- * F-2 lands. F-2 removes the `fixme`.
+ * F-2 completes it. The redirect assertion below was a `test.fixme` while `RequireAuth` did
+ * not exist; it is now a real gate. The two specs that reach the app shell sign in first,
+ * because from F-2 onward everything under `/` is behind that guard - they assert the shell,
+ * not the guard, and `auth.spec.ts` asserts the guard.
  */
 
 test.describe('app shell', () => {
@@ -19,14 +20,17 @@ test.describe('app shell', () => {
   });
 
   test('the app shell renders its main navigation', async ({ page }) => {
-    await page.goto('/');
+    await signIn(page);
 
     await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Patients' })).toBeVisible();
   });
 
   test('a deep client route survives a hard refresh', async ({ page }) => {
-    // Proves the server-side SPA fallback, not just client-side routing.
+    // Proves the server-side SPA fallback, not just client-side routing: the server must hand
+    // back the SPA shell with a 200 even for a route only React Router knows about.
+    await signIn(page);
+
     const response = await page.goto('/patients/00000000-0000-0000-0000-000000000000');
 
     expect(response?.status()).toBe(200);
@@ -60,12 +64,11 @@ test.describe('app shell', () => {
     expect(storage.session).toBe(0);
   });
 
-  test.fixme(
-    'an unauthenticated user is redirected to /login',
-    async ({ page }) => {
-      // Delivered by F-2 (RequireAuth route guard). Remove the fixme with that feature.
-      await page.goto('/patients');
-      await expect(page).toHaveURL(/\/login$/);
-    },
-  );
+  test('an unauthenticated user is redirected to /login', async ({ page }) => {
+    // Was `test.fixme` under F-1 because RequireAuth did not exist. F-2 delivers it, so this
+    // is now a real assertion rather than a deferred one.
+    await page.goto('/patients');
+
+    await expect(page).toHaveURL(/\/login$/);
+  });
 });
