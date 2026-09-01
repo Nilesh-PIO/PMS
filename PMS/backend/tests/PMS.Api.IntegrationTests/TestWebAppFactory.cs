@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using PMS.Application.Abstractions;
 using PMS.Infrastructure.Persistence;
+using PMS.Infrastructure.Persistence.Repositories;
 
 namespace PMS.Api.IntegrationTests;
 
@@ -59,8 +60,30 @@ public class TestWebAppFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
             services.AddScoped<IDatabaseProbe>(sp =>
                 new EfCoreDatabaseProbe(sp.GetRequiredService<PmsDbContext>()));
+
+            // F-2. AddInfrastructure registers this alongside the DbContext, but with no
+            // ConnectionStrings:Pms in the Testing environment it took the no-database branch,
+            // so it is re-registered here next to the DbContext this factory supplies.
+            services.AddScoped<IAppUserRepository, AppUserRepository>();
         });
     }
+
+    /// <summary>
+    /// A client whose base address uses https, so the <c>Secure</c> session cookie is actually
+    /// stored and replayed by <see cref="System.Net.CookieContainer"/> - it refuses to send a
+    /// Secure cookie over http, which would make every authenticated request in these tests
+    /// look anonymous for the wrong reason.
+    /// </summary>
+    public HttpClient CreateHttpsClient() => CreateClient(new WebApplicationFactoryClientOptions
+    {
+        BaseAddress = new Uri("https://localhost"),
+    });
+
+    /// <summary>The user name <see cref="InitializeAsync"/> seeds, for the auth endpoint tests.</summary>
+    public const string TestUserName = "test-doctor";
+
+    /// <summary>At least 12 characters, so it satisfies the same policy the seeder enforces.</summary>
+    public const string TestPassword = "TestDoctor#2026!";
 
     public async Task InitializeAsync()
     {
@@ -70,6 +93,15 @@ public class TestWebAppFactory : WebApplicationFactory<Program>, IAsyncLifetime
         // Migrate, never EnsureCreated: the point is to prove the committed migrations
         // produce a usable schema, which EnsureCreated would bypass entirely.
         await db.Database.MigrateAsync();
+
+        // F-2. Seed through the real production seeder and the real PBKDF2 hasher, so a login
+        // test exercises the credential path end to end rather than a hand-inserted row.
+        //
+        // Program.cs also runs the seeder at startup, but that happens while this factory is
+        // still building the host - before the line above has created the schema - so it logs
+        // a failure and skips. Seeding explicitly here is what makes the ordering deterministic.
+        var seeder = scope.ServiceProvider.GetRequiredService<IInitialUserSeeder>();
+        await seeder.SeedAsync(TestUserName, TestPassword, CancellationToken.None);
     }
 
     public new async Task DisposeAsync()

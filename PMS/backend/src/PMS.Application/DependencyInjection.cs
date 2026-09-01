@@ -15,6 +15,10 @@ public static class DependencyInjection
         services.AddSingleton<IClock, SystemClock>();
         services.AddScoped<IHealthService, HealthService>();
 
+        // F-2. Both are scoped because they reach the database through IAppUserRepository.
+        services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IInitialUserSeeder, InitialUserSeeder>();
+
         return services;
     }
 }

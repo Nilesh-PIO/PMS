@@ -103,3 +103,172 @@ body {
   border: 1px solid var(--pms-border);
   border-radius: 6px;
 }
+
+/* --------------------------------------------------------------------------
+ * F-2 - authentication, session and the idle screen lock.
+ * ------------------------------------------------------------------------ */
+
+.app-layout__session {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.app-layout__user {
+  color: var(--pms-muted);
+  font-size: 0.9rem;
+}
+
+.app-status {
+  padding: 2rem 1.5rem;
+  color: var(--pms-muted);
+}
+
+.app-status--error {
+  color: #92400e;
+}
+
+/* Form primitives. Every patient-data input in F-5 onward renders through these. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.field__label {
+  font-size: 0.875rem;
+  color: var(--pms-muted);
+}
+
+.field__input {
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--pms-border);
+  border-radius: 4px;
+  background: var(--pms-surface);
+}
+
+.field__input:focus {
+  outline: 2px solid var(--pms-accent);
+  outline-offset: 1px;
+}
+
+.field__input[aria-invalid='true'] {
+  border-color: #b91c1c;
+}
+
+.field__error {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #b91c1c;
+}
+
+.button {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.button[disabled] {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.button--primary {
+  background: var(--pms-accent);
+  color: #ffffff;
+}
+
+.button--quiet {
+  background: transparent;
+  border-color: var(--pms-border);
+  color: var(--pms-text);
+}
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.login-page__panel {
+  width: 100%;
+  max-width: 22rem;
+  padding: 1.75rem;
+  background: var(--pms-surface);
+  border: 1px solid var(--pms-border);
+  border-radius: 8px;
+}
+
+.login-page__title {
+  margin: 0 0 1.25rem;
+  font-size: 1.25rem;
+}
+
+.login-page__error {
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 4px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.9rem;
+}
+
+/*
+ * The screen lock (E-62). The application stays mounted underneath at all times (E-41), so the
+ * covering is done with a blur plus an opaque overlay rather than by removing anything from
+ * the DOM. `filter: blur` alone is not enough - text can still be inferred from a screenshot at
+ * low blur radii - so the overlay also paints over the whole viewport.
+ */
+.screen-lock {
+  position: relative;
+  min-height: 100vh;
+}
+
+.screen-lock__app--obscured {
+  filter: blur(10px);
+  pointer-events: none;
+  user-select: none;
+}
+
+.screen-lock__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(31, 41, 51, 0.92);
+}
+
+.screen-lock__panel {
+  width: 100%;
+  max-width: 24rem;
+  padding: 1.75rem;
+  background: var(--pms-surface);
+  border-radius: 8px;
+}
+
+.screen-lock__title {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+}
+
+.screen-lock__message {
+  margin: 0 0 1.25rem;
+  color: var(--pms-muted);
+  font-size: 0.9rem;
+}
+
+.screen-lock__user {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+}
