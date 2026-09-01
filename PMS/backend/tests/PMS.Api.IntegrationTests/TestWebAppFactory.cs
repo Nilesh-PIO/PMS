@@ -65,6 +65,9 @@ public class TestWebAppFactory : WebApplicationFactory<Program>, IAsyncLifetime
             // ConnectionStrings:Pms in the Testing environment it took the no-database branch,
             // so it is re-registered here next to the DbContext this factory supplies.
             services.AddScoped<IAppUserRepository, AppUserRepository>();
+
+            // F-3. Same reason, same branch.
+            services.AddScoped<IClinicProfileRepository, ClinicProfileRepository>();
         });
     }
 

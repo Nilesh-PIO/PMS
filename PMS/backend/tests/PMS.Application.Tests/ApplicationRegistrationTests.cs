@@ -33,4 +33,15 @@ public class ApplicationRegistrationTests
             && d.ImplementationType == typeof(HealthService)
             && d.Lifetime == ServiceLifetime.Scoped);
     }
+
+    [Fact]
+    public void AddApplication_registers_the_clinic_profile_service()
+    {
+        var services = new ServiceCollection().AddApplication();
+
+        services.Should().Contain(d =>
+            d.ServiceType == typeof(IClinicProfileService)
+            && d.ImplementationType == typeof(ClinicProfileService)
+            && d.Lifetime == ServiceLifetime.Scoped);
+    }
 }

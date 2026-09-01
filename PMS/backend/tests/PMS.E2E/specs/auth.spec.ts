@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { SEED_PASSWORD, SEED_USER_NAME, signIn } from './helpers/credentials';
+import { SEED_PASSWORD, SEED_USER_NAME, ensureClinicSetup, signIn } from './helpers/credentials';
 
 /**
  * F-2 end-to-end spec (planning-pms-verification.md, F-2 point 6): "golden path login/logout;
@@ -17,6 +17,10 @@ test.describe('authentication', () => {
     await page.getByLabel('User name').fill(SEED_USER_NAME);
     await page.getByLabel('Password').fill(SEED_PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
+
+    // F-3 puts the first-run setup gate between sign-in and the app shell (E-1). On a database
+    // that is already configured this is a no-op.
+    await ensureClinicSetup(page);
 
     await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
 
