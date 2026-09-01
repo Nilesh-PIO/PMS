@@ -60,8 +60,13 @@ dotnet ef database update -p src/PMS.Infrastructure -s src/PMS.Api
 | Frontend install | `cd PMS/frontend && npm install` |
 | Frontend unit tests | `cd PMS/frontend && npm test` |
 | Frontend production build | `cd PMS/frontend && npm run build` |
-| Run the API (serves the built SPA) | `cd PMS/backend/src/PMS.Api && dotnet run` |
+| Run the API (serves the built SPA) | `cd PMS/backend/src/PMS.Api && dotnet run --launch-profile https` |
 | Frontend dev server (proxies `/api`) | `cd PMS/frontend && npm run dev` |
+
+The `https` launch profile must be used explicitly: the frontend dev proxy (`vite.config.ts`) targets
+`https://localhost:7191`, but plain `dotnet run` selects the first profile in `launchSettings.json`
+(`http`, port 5054 only). Running without `--launch-profile https` leaves nothing listening on 7191,
+so the Vite proxy fails with a bare `500 Internal Server Error` on every `/api/*` call, including login.
 | E2E | `cd PMS/backend/tests/PMS.E2E && npm install && npm run install-browsers && npm test` |
 
 `npm run build` emits into `PMS/backend/src/PMS.Api/wwwroot`, so the API and the SPA are

@@ -12,8 +12,11 @@ Real build/test commands now exist:
 - Frontend install: `cd PMS/frontend && npm install`
 - Frontend unit tests: `cd PMS/frontend && npm test`
 - Frontend production build: `cd PMS/frontend && npm run build`
-- Run the API (serves the built SPA): `cd PMS/backend/src/PMS.Api && dotnet run`
-- Frontend dev server (proxies `/api`): `cd PMS/frontend && npm run dev`
+- Run the API (serves the built SPA): `cd PMS/backend/src/PMS.Api && dotnet run --launch-profile https`
+- Frontend dev server (proxies `/api`): `cd PMS/frontend && npm run dev` — requires the API running on
+  the `https` profile above (the dev proxy targets `https://localhost:7191`; the default `http` profile
+  alone leaves 7191 unbound and every `/api/*` call, including login, fails with a bare 500 from the
+  Vite proxy, not the backend)
 - E2E: `cd PMS/backend/tests/PMS.E2E && npm install && npm run install-browsers && npm test` — see the Playwright gotcha below before relying on this.
 
 The rest of the repo still holds the requirements and the multi-agent planning/build pipeline that produced and gates this code, defined in `BRD/Doc_BRD.md`.
