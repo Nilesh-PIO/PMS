@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Enables `dotnet user-secrets set "ConnectionStrings:Pms" "..."`, which is how the
+         connection string reaches the app locally. Nothing secret is ever committed. -->
+    <UserSecretsId>pms-clinic-app</UserSecretsId>
+    <!-- Program.cs is top-level; the integration tests need the generated Program type. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 10.0.11 pulls Microsoft.OpenApi 2.7.5, above the vulnerable 2.0.0 that 10.0.10
+         brought in (GHSA-v5pm-xwqc-g5wc). Do not downgrade. -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PMS.Application\PMS.Application.csproj" />
+    <ProjectReference Include="..\PMS.Infrastructure\PMS.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <!-- The React bundle is built into wwwroot by `npm run build` in PMS/frontend and is
+       git-ignored, so on a fresh clone the folder does not exist yet. Create it at build
+       time so UseStaticFiles always has a web root, without committing a placeholder file
+       that Vite's emptyOutDir would then delete on every front-end build. -->
+  <Target Name="EnsureWebRootExists" BeforeTargets="Build">
+    <MakeDir Directories="$(MSBuildProjectDirectory)\wwwroot" />
+  </Target>
+
+</Project>
