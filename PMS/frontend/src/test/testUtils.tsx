@@ -4,18 +4,45 @@ import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { vi } from 'vitest';
 import type { Session } from '../features/auth/types/session';
+import {
+  TemperatureUnit,
+  type ClinicProfile,
+} from '../features/clinic/types/clinicProfile';
 
 /**
  * Shared test helpers. Not a test file itself - the vitest `include` pattern only picks up
  * `*.test.*` and `*.spec.*`.
  */
 
-/** A plausible signed-in session, 12 hours out. */
+/**
+ * A plausible signed-in session, 12 hours out.
+ *
+ * `setupComplete` defaults to **true** from F-3 onward: the ordinary state of a working clinic is
+ * one whose profile has been saved, and every screen from F-5 on is only reachable in that state.
+ * A test that cares about first-run setup passes `{ setupComplete: false }` explicitly, which
+ * makes the unusual case the visible one.
+ */
 export function aSession(overrides: Partial<Session> = {}): Session {
   return {
     userName: 'doctor',
     expiresUtc: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
-    setupComplete: false,
+    setupComplete: true,
+    ...overrides,
+  };
+}
+
+/** A saved clinic profile, as the API returns it (F-3). */
+export function aClinicProfile(overrides: Partial<ClinicProfile> = {}): ClinicProfile {
+  return {
+    clinicName: 'Sunrise Clinic',
+    addressLines: '12 Station Road\nPune 411001',
+    doctorName: 'Dr A. Mehta',
+    doctorRegistrationNo: 'MMC-99215',
+    prescriptionFooter: 'Please bring this prescription to your next visit.',
+    temperatureUnit: TemperatureUnit.Celsius,
+    signatureImageDataUrl: null,
+    isSetupComplete: true,
+    updatedUtc: new Date().toISOString(),
     ...overrides,
   };
 }
@@ -75,7 +102,9 @@ export function noContentResponse(): Response {
  * server says and nothing else is mocked - `httpClient` and the feature API module both run
  * for real.
  */
-export function stubFetch(routes: Record<string, () => Response | Promise<Response>>) {
+export function stubFetch(
+  routes: Record<string, (init?: RequestInit) => Response | Promise<Response>>,
+) {
   const calls: { url: string; init?: RequestInit }[] = [];
 
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -86,7 +115,9 @@ export function stubFetch(routes: Record<string, () => Response | Promise<Respon
     if (!match) {
       throw new Error(`No stub for ${url}`);
     }
-    return routes[match]();
+    // `init` is handed to the route so a stub can answer a GET and a PUT on the same path
+    // differently - which is what a save-then-reload flow actually does.
+    return routes[match](init);
   });
 
   vi.stubGlobal('fetch', fetchMock);

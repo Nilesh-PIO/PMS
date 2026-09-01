@@ -272,3 +272,119 @@ body {
   margin: 0 0 0.75rem;
   font-size: 0.9rem;
 }
+
+/* --- F-3: clinic profile and first-run setup ---------------------------- */
+
+.field__input--multiline {
+  resize: vertical;
+  min-height: 3rem;
+  font-family: inherit;
+}
+
+.field__hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--pms-muted);
+}
+
+.setup-page {
+  display: flex;
+  justify-content: center;
+  padding: 2rem 1rem 4rem;
+  background: var(--pms-background);
+  min-height: 100vh;
+}
+
+.setup-page__panel {
+  width: min(44rem, 100%);
+  background: var(--pms-surface);
+  border: 1px solid var(--pms-border);
+  border-radius: 8px;
+  padding: 1.75rem 2rem 2rem;
+}
+
+.setup-page__intro,
+.clinic-page__intro {
+  color: var(--pms-muted);
+  margin: 0.25rem 0 1.5rem;
+}
+
+.clinic-page {
+  max-width: 44rem;
+}
+
+.clinic-form__group {
+  border: 1px solid var(--pms-border);
+  border-radius: 6px;
+  padding: 1rem 1.25rem 1.25rem;
+  margin: 0 0 1.25rem;
+}
+
+.clinic-form__group legend {
+  font-weight: 600;
+  padding: 0 0.4rem;
+}
+
+.clinic-form__hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--pms-muted);
+}
+
+.clinic-form__radios {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.clinic-form__radio {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.clinic-form__error {
+  background: #fdeced;
+  border: 1px solid #e5b3b7;
+  border-radius: 4px;
+  color: #8a1c25;
+  padding: 0.6rem 0.8rem;
+  margin: 0 0 1rem;
+}
+
+.clinic-form__signature {
+  margin-top: 1rem;
+}
+
+.clinic-form__signature-preview {
+  display: block;
+  max-width: 18rem;
+  max-height: 6rem;
+  margin: 0.5rem 0;
+  border: 1px solid var(--pms-border);
+  background: var(--pms-surface);
+}
+
+/* Mirrors what the prescription prints when there is no signature image: a ruled area to sign
+   in, never a broken-image placeholder (plan F-3 point 1). */
+.clinic-form__signature-rule {
+  max-width: 18rem;
+  margin: 0.5rem 0;
+  padding-top: 2.5rem;
+  border-bottom: 1px solid var(--pms-text);
+}
+
+.clinic-form__signature-caption {
+  display: block;
+  padding-top: 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--pms-muted);
+}
+
+.clinic-form__signature-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}

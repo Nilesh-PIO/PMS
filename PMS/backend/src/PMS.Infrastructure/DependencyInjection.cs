@@ -52,6 +52,9 @@ public static class DependencyInjection
         // there is no user store to read, and GET /api/health/db is the endpoint that says so.
         services.AddScoped<IAppUserRepository, AppUserRepository>();
 
+        // F-3. Same branch, same reason.
+        services.AddScoped<IClinicProfileRepository, ClinicProfileRepository>();
+
         return services;
     }
 }

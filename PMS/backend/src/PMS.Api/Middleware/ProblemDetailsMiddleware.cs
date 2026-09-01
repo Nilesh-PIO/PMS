@@ -23,6 +23,9 @@ public sealed class ProblemDetailsMiddleware
     /// <summary>Extension key carrying the correlation id inside the body as well as the header.</summary>
     public const string CorrelationIdExtension = "correlationId";
 
+    /// <summary>Extension key carrying the accepted maximum upload size on a 413.</summary>
+    public const string LimitBytesExtension = "limitBytes";
+
     private const string ContentType = "application/problem+json";
 
     private readonly RequestDelegate _next;
@@ -79,6 +82,35 @@ public sealed class ProblemDetailsMiddleware
                     Type = "https://datatracker.ietf.org/doc/html/rfc9110#section-15.5.5",
                     Instance = context.Request.Path,
                 };
+
+            case BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge }:
+                // Kestrel's own request-size limit fired before the action ever ran. Reported with
+                // the same status and shape as the service-level cap, so the client has one case
+                // to handle rather than two that mean the same thing.
+                _logger.LogInformation("Request body exceeded the pipeline limit on {Path}.", context.Request.Path);
+                return new ProblemDetails
+                {
+                    Status = StatusCodes.Status413PayloadTooLarge,
+                    Title = "The uploaded file is too large.",
+                    Detail = "The upload exceeded the size this endpoint accepts.",
+                    Type = "https://datatracker.ietf.org/doc/html/rfc9110#section-15.5.14",
+                    Instance = context.Request.Path,
+                };
+
+            case PayloadTooLargeException tooLarge:
+                // F-3. A 413 rather than a 400: the request was well-formed, the file was simply
+                // bigger than the cap, and the physician's next action is to pick another file.
+                _logger.LogInformation("Upload rejected as too large on {Path}.", context.Request.Path);
+                var tooLargeProblem = new ProblemDetails
+                {
+                    Status = StatusCodes.Status413PayloadTooLarge,
+                    Title = "The uploaded file is too large.",
+                    Detail = tooLarge.Message,
+                    Type = "https://datatracker.ietf.org/doc/html/rfc9110#section-15.5.14",
+                    Instance = context.Request.Path,
+                };
+                tooLargeProblem.Extensions[LimitBytesExtension] = tooLarge.LimitBytes;
+                return tooLargeProblem;
 
             case DomainRuleException rule:
                 _logger.LogInformation(

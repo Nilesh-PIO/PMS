@@ -12,28 +12,23 @@ namespace PMS.Application.Services;
 /// </summary>
 public sealed class AuthService : IAuthService
 {
-    /// <summary>
-    /// Whether first-run clinic setup has been completed.
-    /// </summary>
-    /// <remarks>
-    /// ASSUMPTION (plan F-2 point 3 vs. F-3): <c>SessionResponse.setupComplete</c> is part of
-    /// F-2's response contract, but the <c>ClinicProfile</c> entity that answers it is F-3's
-    /// and does not exist yet. Reporting <c>false</c> is not a placeholder - it is literally
-    /// true right now, because no clinic profile has been captured. F-3 replaces this constant
-    /// with a read of <c>ClinicProfile.IsSetupComplete</c> and adds the client-side redirect to
-    /// /setup; nothing about the wire shape changes when it does.
-    /// </remarks>
-    private const bool SetupCompleteUntilF3 = false;
-
     private readonly IAppUserRepository _users;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IClock _clock;
+    private readonly IClinicProfileService _clinicProfile;
 
-    public AuthService(IAppUserRepository users, IPasswordHasher passwordHasher, IClock clock)
+    public AuthService(
+        IAppUserRepository users,
+        IPasswordHasher passwordHasher,
+        IClock clock,
+        IClinicProfileService clinicProfile)
     {
         _users = users;
         _passwordHasher = passwordHasher;
         _clock = clock;
+        // F-3. Replaces the constant `false` F-2 shipped: `setupComplete` is now a real read of
+        // the clinic profile, which is what drives the client's redirect to /setup (E-1).
+        _clinicProfile = clinicProfile;
     }
 
     /// <inheritdoc />
@@ -75,13 +70,13 @@ public sealed class AuthService : IAuthService
         var session = new SessionResponse(
             user.UserName,
             now.Add(SessionPolicy.AbsoluteLifetime),
-            SetupCompleteUntilF3);
+            await _clinicProfile.IsSetupCompleteAsync(cancellationToken));
 
         return AuthenticationResult.Success(session, user.SecurityStamp);
     }
 
     /// <inheritdoc />
-    public Task<SessionResponse> DescribeSessionAsync(
+    public async Task<SessionResponse> DescribeSessionAsync(
         string userName,
         DateTimeOffset absoluteExpiryUtc,
         CancellationToken cancellationToken)
@@ -89,7 +84,14 @@ public sealed class AuthService : IAuthService
         // The absolute expiry is echoed from the cookie rather than recomputed: recomputing it
         // from "now" would silently extend the session every time the client polled it, which
         // is exactly the sliding-forever behaviour REC-11's absolute cap exists to prevent.
-        return Task.FromResult(new SessionResponse(userName, absoluteExpiryUtc, SetupCompleteUntilF3));
+        //
+        // F-3: setupComplete is re-read here rather than cached in the cookie. It has to be - the
+        // physician completes setup *during* a session, and a claim stamped at sign-in would keep
+        // redirecting them back to /setup until they signed out and in again.
+        return new SessionResponse(
+            userName,
+            absoluteExpiryUtc,
+            await _clinicProfile.IsSetupCompleteAsync(cancellationToken));
     }
 
     private static void Validate(LoginRequest request)

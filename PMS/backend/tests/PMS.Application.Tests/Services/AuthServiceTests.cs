@@ -21,7 +21,13 @@ public class AuthServiceTests
     private readonly FixedClock _clock = new(Now);
     private readonly FakePasswordHasher _hasher = new();
 
-    private (AuthService Service, FakeAppUserRepository Repository, AppUser User) BuildWithUser()
+    /// <summary>
+    /// F-3 added <c>IClinicProfileService</c> to AuthService so that <c>setupComplete</c> is a real
+    /// read rather than F-2's constant. These tests are about credentials, so the clinic's setup
+    /// state is stubbed; the two tests that care about it state their own value.
+    /// </summary>
+    private (AuthService Service, FakeAppUserRepository Repository, AppUser User) BuildWithUser(
+        bool setupComplete = false)
     {
         var user = new AppUser
         {
@@ -32,7 +38,10 @@ public class AuthServiceTests
         };
 
         var repository = new FakeAppUserRepository(user);
-        return (new AuthService(repository, _hasher, _clock), repository, user);
+        return (
+            new AuthService(repository, _hasher, _clock, new StubClinicProfileService(setupComplete)),
+            repository,
+            user);
     }
 
     // --- hash verification -------------------------------------------------
@@ -146,7 +155,8 @@ public class AuthServiceTests
     [Fact]
     public async Task Authenticating_against_an_empty_user_store_fails_rather_than_throwing()
     {
-        var service = new AuthService(new FakeAppUserRepository(), _hasher, _clock);
+        var service = new AuthService(
+            new FakeAppUserRepository(), _hasher, _clock, new StubClinicProfileService());
 
         var result = await service.AuthenticateAsync(new LoginRequest(UserName, Password), default);
 
@@ -239,5 +249,46 @@ public class AuthServiceTests
         // The whole E-41/E-62 mitigation rests on this inequality: locking the screen must
         // never be the same event as ending the session, or a lock would cost a draft.
         SessionPolicy.IdleLock.Should().BeLessThan(SessionPolicy.AbsoluteLifetime);
+    }
+
+    // --- F-3: setupComplete is a real read, not F-2's constant --------------
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Sign_in_reports_the_clinics_actual_setup_state(bool setupComplete)
+    {
+        var (service, _, _) = BuildWithUser(setupComplete);
+
+        var result = await service.AuthenticateAsync(new LoginRequest(UserName, Password), default);
+
+        result.Session!.SetupComplete.Should().Be(setupComplete);
+    }
+
+    [Fact]
+    public async Task Describing_a_session_re_reads_setup_state_rather_than_caching_it()
+    {
+        // E-1. The physician completes setup *during* a session. If setupComplete were stamped
+        // into the cookie at sign-in, finishing the setup form would leave the client still being
+        // redirected back to /setup until the next sign-out - so it must be read every time.
+        var stub = new StubClinicProfileService(setupComplete: true);
+        var service = new AuthService(
+            new FakeAppUserRepository(), _hasher, _clock, stub);
+
+        await service.DescribeSessionAsync(UserName, Now.AddHours(2), default);
+        await service.DescribeSessionAsync(UserName, Now.AddHours(2), default);
+
+        stub.IsSetupCompleteCallCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_described_session_reports_setup_complete_when_the_clinic_is_configured()
+    {
+        var service = new AuthService(
+            new FakeAppUserRepository(), _hasher, _clock, new StubClinicProfileService(true));
+
+        var session = await service.DescribeSessionAsync(UserName, Now.AddHours(2), default);
+
+        session.SetupComplete.Should().BeTrue();
     }
 }

@@ -19,6 +19,13 @@ public class PmsDbContext : DbContext
 
     public DbSet<AppUser> AppUsers => Set<AppUser>();
 
+    /// <summary>
+    /// F-3. Singular by name because it is a singleton: exactly one row, always
+    /// <see cref="ClinicProfile.SingletonId"/>. A plural name would invite a
+    /// <c>FirstOrDefault()</c> over an unordered table somewhere down the line.
+    /// </summary>
+    public DbSet<ClinicProfile> ClinicProfile => Set<ClinicProfile>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

@@ -16,8 +16,8 @@ folder-per-feature React structure and the test project layout all follow the pl
 |---|---|---|---|---|---|
 | F-1 | Solution scaffolding, app shell, health check, error contract | **Built & Verified** | `f-1-scaffolding` / `feature/f-1-scaffolding` | 2026-09-01 | Verified by verification-pms 2026-09-01 — all 5 ACs met on independently re-run evidence; 70 tests re-run, 0 failed, 0 skipped. **Two carried items, neither an F-1 code defect:** Playwright browser harness unprovable on this host (must be closed before F-14); branch was merged to `main` before this gate ran (process violation). Next: `code-review-pms`. |
 | F-2 | Login, session policy, idle screen lock | Awaiting verification | `f-2-auth-session` / `feature/f-2-auth-session` | 2026-09-01 | Ready for verification-pms. 211 automated tests pass (108 .NET + 103 Vitest), 0 skipped — re-run from a clean build in a second pass, plus a live smoke against a throwaway DB. Built against the plan's C-44/REC-11 assumption. **Carries a deliberate, user-directed deviation: the seed credential `doctor` / `SeedDoctor#2026!` is committed in plain text in `appsettings.json` under `SeedDoctorUser`** — see the log entries; this is an instruction, not an oversight. Password rotation after first sign-in is recommended, not enforced (F-21 is `Blocked`). E2E browser launch still blocked by the host. |
-| F-3 | ClinicProfile + first-run setup gate | Not Started | — | — | Depends on F-1, F-2. Needs decision Q-4 (assumption stated). |
-| F-4 | Doctor-configured settings | Not Started | — | — | Depends on F-3. Needs decision Q-9, Q-10 (assumptions stated). |
+| F-3 | ClinicProfile + first-run setup gate | Awaiting verification | `f-3-clinic-profile` / `feature/f-3-clinic-profile` | 2026-09-01 | Ready for verification-pms. **315 automated tests pass (169 .NET + 146 Vitest), 0 skipped**, re-run from a clean build, plus a live smoke against a throwaway database. Built against the plan's **Q-4** assumption (PNG signature ≤ 200 KB, footer ≤ 500 chars, nothing prints until `IsSetupComplete`). **Dependency note: F-2 is still tracker-status `Awaiting verification` but was merged to `main` at `2eb69d4` before its gate ran — the same out-of-band-merge pattern F-1 recorded.** F-3 was built on that merged code because it is on `main` and demonstrably working, **not** because F-2 is `Built & Verified`; only verification-pms sets that. **One real defect was found by the live smoke and fixed** (oversize signature upload returned 400 instead of the specified 413 — the integration test had passed for a reason that did not hold under real Kestrel; see the log). E2E browser launch still blocked by the host. |
+| F-4 | Doctor-configured settings | Not Started | — | — | Depends on F-3 (now `Awaiting verification`, not yet `Built & Verified`). Needs decision Q-9, Q-10 (assumptions stated). |
 | F-5 | Patient registration & profile | Not Started | — | — | Depends on F-1, F-2, F-4. Needs decision Q-7, Q-16, Q-9. |
 | F-6 | Duplicate detection + `merged_into` pointer | Not Started | — | — | Depends on F-5. Needs decision Q-13. |
 | F-7 | Patient search, recent patients, picker | Not Started | — | — | Depends on F-5. Needs decision C-22 (no `Q-` exists). |
@@ -714,4 +714,303 @@ does not build a forced-rotation flow — that is out of scope for the feature a
 password change/recovery is F-21, `Blocked` on C-44.
 
 Committed on `feature/f-2-auth-session`. Not merged, not pushed, worktree not removed.
+Next: `verification-pms`.
+
+---
+
+### 2026-09-01 — F-3 ClinicProfile + first-run setup gate
+
+**Status: `Awaiting verification`.** Handed to verification-pms. Branch left for review, not
+merged, not pushed, worktree not removed.
+
+- Reused the existing isolated worktree at
+  `C:\Users\NileshMalviya\source\repos\f-3-clinic-profile`, branch `feature/f-3-clinic-profile`,
+  cut from `main` at `8f0da5d`. Confirmed distinct from the main working tree (`git worktree list`)
+  and clean before writing anything. Also confirmed `doc/planning-pms-verification.md`,
+  `doc/brainstorm-pms-verification.md` and `doc/implementation-progress.md` are byte-identical to
+  the main tree's (modulo CRLF), so this was built against the current committed plan.
+
+**Dependency flag, stated rather than absorbed — F-2 was merged out of band.**
+The plan makes F-3 depend on F-1 and F-2. F-1 is `Built & Verified`. **F-2 is still tracker-status
+`Awaiting verification`, yet its code is already on `main` at `2eb69d4`** ("Merge pull request #2
+from Nilesh-PIO/feature/f-2-auth-session") — the same sequencing violation `verification-pms`
+recorded against F-1. F-3 was built on top of that merged code because it is on `main` and
+demonstrably working (its auth paths are exercised live in the smoke below). **This is not a claim
+that F-2's dependency is satisfied in the pipeline's sense** — only `verification-pms` can set
+`Built & Verified`, and it has not. If F-2 later comes back `Needs rework`, F-3's session-gate
+integration is the surface that would be affected.
+
+**Readiness — Q-4, built against the plan's stated assumption.**
+Plan F-3 point 1 says the entity and the gate are settled by REC-4 and that what remains open is
+the *content*: **Q-4 — the clinic header/footer text, the registration number, and who supplies the
+signature image.** That is a business/clinical-identity question for the physician, so nothing here
+invents an answer; what is built is the *shape* the plan specifies, with the clinic supplying the
+content through the UI:
+
+- signature stored as an uploaded **PNG at most 200 KB** in `ClinicProfile.SignatureImage`;
+- prescription footer free text **at most 500 characters**;
+- **no prescription can be printed until `IsSetupComplete` is true** (E-1);
+- **with no signature image the footer renders a ruled signature area, never a broken-image
+  placeholder** — implemented in the form preview now, and inherited by F-14's PDF.
+
+No header, footer or registration value is hardcoded anywhere; every one of them is data the
+physician enters.
+
+**Built (backend):**
+
+- `PMS.Domain`: `Entities/ClinicProfile.cs` (singleton, `SingletonId = 1`),
+  `Enums/TemperatureUnit.cs`.
+- `PMS.Application`: `Abstractions/IClinicProfileService.cs`,
+  `Abstractions/IClinicProfileRepository.cs`; `Dtos/Clinic/ClinicProfileResponse.cs`,
+  `Dtos/Clinic/UpsertClinicProfileRequest.cs`; `Services/ClinicProfileService.cs`;
+  `Exceptions/PayloadTooLargeException.cs`; registered in `DependencyInjection.cs`.
+- `PMS.Infrastructure`: `Persistence/Configurations/ClinicProfileConfiguration.cs`,
+  `Persistence/Repositories/ClinicProfileRepository.cs`, `PmsDbContext.ClinicProfile` DbSet,
+  `Migrations/20260901163456_AddClinicProfile.cs`, registration in `DependencyInjection.cs`.
+- `PMS.Api`: `Controllers/ClinicProfileController.cs` (the four routes exactly as the plan's table
+  specifies), `Filters/RequiresSetupCompleteAttribute.cs`, `Filters/MaxUploadBytesAttribute.cs`;
+  `Middleware/ProblemDetailsMiddleware.cs` gains 413 mapping. `ClinicProfileController` depends on
+  `IClinicProfileService`, never on `PmsDbContext`.
+- **F-2's placeholder is gone.** `AuthService` had `SetupCompleteUntilF3 = false` hardcoded;
+  it now takes `IClinicProfileService` and reports the real answer. `DescribeSessionAsync`
+  **re-reads** it on every call rather than stamping it into the cookie — the physician completes
+  setup *during* a session, and a cached claim would keep bouncing them back to `/setup` until they
+  signed out and in again. Pinned by a test.
+
+**Three backend decisions worth naming:**
+
+1. **`IsSetupComplete` is derived, not trusted.** The column is still persisted (F-14 and any
+   reporting query need to read it), but `ClinicProfileService` recomputes it from the stored
+   values on every read and write. This is not defensive theatre in this stack: **SQL Server via
+   SSMS is the project's stated database tool**, so a hand-run `UPDATE` that blanks `DoctorName`
+   while leaving `IsSetupComplete = 1` is an ordinary Tuesday, and it would silently disarm the
+   E-1 print gate. Proven live below — the column said `1`, the API said `false`.
+2. **The singleton is enforced by the database, not just the service.**
+   `CK_ClinicProfile_SingletonRow` (`[Id] = 1`) plus a non-identity key. "Which clinic name goes on
+   the prescription?" must not have two possible answers, and the SSMS path is how a second row
+   would otherwise appear. Proven live: a direct `INSERT` of `Id = 2` fails with Msg 547.
+3. **The signature is validated by its bytes, not its content type.** A renamed `.jpg` passes any
+   content-type check and then fails inside the PDF renderer at print time — with a patient
+   waiting. Checking the eight-byte PNG magic moves that failure to the settings screen, where it
+   costs nothing.
+
+**Built (frontend):**
+
+- `features/clinic/`: `ClinicProfileForm.tsx` (the one form both screens render, per plan F-3
+  point 4), `ClinicProfilePage.tsx` (route `/settings/clinic`), `clinicApi.ts`
+  (`getProfile`/`saveProfile`/`uploadSignature`/`deleteSignature`), `useClinicProfile.ts`,
+  `types/clinicProfile.ts`.
+- `features/setup/FirstRunSetupPage.tsx` (route `/setup`).
+- `shared/components/RequireSetup.tsx` (the router-level gate),
+  `shared/components/forms/TextAreaField.tsx`, `shared/format/temperature.ts`.
+- `routes.tsx` mounts the two real pages and wraps the layout branch in
+  `RequireAuth` -> `RequireSetup` -> `AppLayout`. `/setup` sits behind `RequireAuth` but
+  deliberately **outside** `RequireSetup`, or the gate would redirect to itself forever.
+
+**Data integrity check (F-3 point 5) — the mechanism, not a mention.** The risk F-3 removes is
+**E-1**: a prescription printed with no clinic identity, which is not a weak document but an
+unusable one a pharmacy will refuse. It is closed at three levels, so no single omission reopens
+it: the **client** never lets the physician reach a consultation while `setupComplete` is false;
+the **server** exposes `[RequiresSetupComplete]` + `EnsureSetupCompleteAsync`, which throws
+`DomainRuleException("setup-incomplete")` producing a 409 through F-1's existing error contract;
+and the **answer itself** is derived from the stored values rather than read from a flag anyone
+could set. Deleting the signature deliberately does *not* un-arm the gate — a physician who signs
+by hand has a complete setup, not a broken one.
+
+**Test results — run in the worktree after deleting every `bin/` and `obj/`, real output:**
+
+| Command (run in the worktree) | Result |
+|---|---|
+| `dotnet build PMS/backend/PMS.sln` | **Build succeeded, 0 Warning(s), 0 Error(s)** |
+| `dotnet test PMS/backend/PMS.sln` | `PMS.Application.Tests` **Failed: 0, Passed: 83, Skipped: 0**; `PMS.Api.IntegrationTests` **Failed: 0, Passed: 86, Skipped: 0** |
+| `npm test` (`vitest run`) in `PMS/frontend` | **13 files, 146 passed, 0 failed, 0 skipped** |
+| `npm run build` in `PMS/frontend` | Succeeded — 102 modules, emitted into `PMS/backend/src/PMS.Api/wwwroot` after deleting it first |
+| `dotnet ef migrations has-pending-model-changes` | **"No changes have been made to the model since the last migration"** |
+| `tsc --noEmit` on `PMS.E2E` | **exit 0**, no diagnostics |
+
+**Total: 315 automated tests passing (169 .NET + 146 Vitest), 0 skipped, 0 failed** — up from
+F-2's 211. Counts read, not exit codes; this host is known to print `Passed!` on a zero-test
+project.
+
+New test files, at the plan's named targets plus four the plan implies:
+`PMS.Application.Tests/Services/ClinicProfileServiceTests.cs`,
+`PMS.Api.IntegrationTests/Endpoints/ClinicProfileEndpointTests.cs`,
+`PMS.Api.IntegrationTests/Endpoints/SetupGateTests.cs`,
+`frontend/src/features/clinic/ClinicProfilePage.test.tsx`,
+`frontend/src/features/setup/FirstRunSetupPage.test.tsx`,
+`frontend/src/shared/components/RequireSetup.test.tsx`,
+`frontend/src/shared/format/temperature.test.ts`,
+`PMS.E2E/specs/first-run.spec.ts`.
+`AuthServiceTests`, `ApplicationRegistrationTests`, `App.test.tsx` and `testUtils.tsx` were updated
+(not weakened): `aSession()` now defaults to `setupComplete: true`, because a working clinic is one
+whose profile is saved, and the first-run case is asserted explicitly in its own block instead of
+being the silent default.
+
+**Acceptance criterion 3 and the F-14 seam — how it is proven without shipping F-14's route.**
+AC-3 names `POST /api/prescriptions/...`, which is F-14's endpoint and does not exist. Building a
+stub of it here would put a fake route on the live surface that someone later has to find and
+remove. What F-3 actually owns is the *gate*, so the gate is exercised end-to-end — real filter,
+real service, real database, real ProblemDetails middleware — against a controller that exists
+**only in the integration-test assembly**, mounted at the route shape F-14 will use and loaded
+through a test-only `AddApplicationPart`. F-14's job is then one line:
+`[RequiresSetupComplete]` on the real controller. If it forgets, that is an F-14 test failure, not
+a hole this papers over. Flagged for the reviewer rather than decided silently.
+
+---
+
+#### A real defect the live smoke caught that the test suite did not
+
+**Symptom.** An oversize signature upload returned **400**, not the **413** the plan's route table
+specifies — and the message told the physician their *form* was malformed when in fact their
+*file* was too big. The fix for that is a different file, not a different field, so the wrong
+status here is a genuinely misleading one.
+
+**Cause.** MVC runs its value-provider factories during model binding, and
+`FormValueProviderFactory` calls `ReadFormAsync` for **any** action whose request has a form
+content type. When that read tripped the request-size limit, the factory recorded "Failed to read
+the request form" in `ModelState` and `[ApiController]`'s automatic `ModelStateInvalidFilter`
+answered 400 — **the action body never ran**, so the `IFormFile`-length check inside it could not
+fire.
+
+**Why the suite missed it, which is the part worth reading.** The integration test asserting 413
+**passed**. Under `WebApplicationFactory`'s in-memory server the oversize request fails earlier and
+happens to produce the right status; under real Kestrel it does not. That is a false green, and it
+would have shipped. The fix is deliberately server-independent: `MaxUploadBytesAttribute` is an
+`IAsyncResourceFilter` — resource filters run **before** model binding — and it checks
+`Content-Length` only, which behaves identically under both servers, so test and deployed behaviour
+cannot diverge here again. A test pinning the regression was added
+(`A_signature_past_the_transport_limit_is_still_a_413_and_not_a_400`).
+
+**Recorded rather than quietly fixed** because it is evidence about this repo's test setup, not
+just about one endpoint: an integration test that only ever runs in-memory can assert a status the
+real server does not produce.
+
+---
+
+**Live smoke against a running instance and a throwaway database.** The dev database already had a
+clinic profile, which would have made the first-run path untestable, so `PMSDb_F3Smoke` was created
+fresh, migrated, exercised, and dropped:
+
+| Check | Result |
+|---|---|
+| `dotnet ef database update` on the empty DB | applied all three migrations; `sys.check_constraints` lists `CK_ClinicProfile_SingletonRow` as `([Id]=(1))` |
+| `POST /api/auth/login` on the fresh clinic | **200** `{"userName":"doctor",...,"setupComplete":false}` |
+| `GET /api/clinic-profile` with no profile | **404** `problem+json` — the state the client renders as a blank setup form |
+| `GET /api/clinic-profile` with no cookie | **401** |
+| `PUT` with blank fields | **400** with all four field errors: `ClinicName`, `DoctorName`, `DoctorRegistrationNo`, `TemperatureUnit` |
+| `GET /api/auth/session` after that rejected PUT | still `setupComplete: false` — **a 400 wrote nothing** |
+| `PUT` a valid profile | **200**, `isSetupComplete: true` |
+| `GET /api/auth/session` immediately after | **`setupComplete: true`** — the gate lifts mid-session, no re-login |
+| `GET /api/clinic-profile` | full round-trip, address newlines and footer intact |
+| Signature: valid PNG | **200**, `signatureImageDataUrl` starts `data:image/png;base64,` |
+| Signature: renamed non-PNG | **400** `{"file":["The signature image must be a PNG file."]}` |
+| Signature: 250 KB | **413** `{"detail":"The signature image must be 200 KB or smaller.","limitBytes":237568}` |
+| Signature: 700 KB | **413** |
+| Database after the rejected uploads | signature still the **67-byte** valid PNG — a rejected upload changes nothing |
+| `DELETE /api/clinic-profile/signature` | **200**, signature `null`, `isSetupComplete` still **true** |
+| **Direct `INSERT` of a second row (the SSMS path)** | **Msg 547** — `The INSERT statement conflicted with the CHECK constraint "CK_ClinicProfile_SingletonRow"` |
+| **`UPDATE ClinicProfile SET DoctorName=''` leaving `IsSetupComplete = 1`** | column still reads **`1`**, but `GET /api/auth/session` reports **`setupComplete: false`** and `GET /api/clinic-profile` reports **`isSetupComplete: false`** — the derivation defends the print gate against an out-of-band edit |
+| Restoring the doctor name | gate re-arms, `setupComplete: true` |
+| F-1 / F-2 regressions | `health=200 health-db=200 unmatched-api=404 problem+json`, `/`=200 html, `/setup`=200 html, `/settings/clinic`=200 html, `/patients/123`=200 html; unauthenticated `clinic-profile=401 auth-session=401` |
+| Teardown | `PMSDb_F3Smoke` dropped; `sys.databases` shows only `PMSDb` — the dev database was not disturbed |
+
+**Acceptance criteria — walked line by line:**
+
+1. *With an empty `ClinicProfile` table, every authenticated route redirects to `/setup`* —
+   **met.** `RequireSetup` wraps the whole layout branch, so this is one guard rather than a
+   per-route habit. Asserted for **all seven** authenticated paths in `App.test.tsx`
+   ("sends a signed-in physician from %s to /setup while the clinic is unconfigured") and again in
+   `RequireSetup.test.tsx`. Also asserted that a **signed-out** visitor goes to `/login`, not
+   `/setup` — auth is asked first, because `setupComplete` is a property of a session.
+2. *Saving clinic name, doctor name, registration number and temperature unit sets
+   `IsSetupComplete = true` and lifts the redirect* — **met**, and verified live end to end
+   (rows 6-8 of the smoke table): the same session that reported `setupComplete: false` reported
+   `true` immediately after the PUT, with no re-login. `useClinicProfile` invalidates the session
+   query on every successful write, which is the half that makes the redirect actually lift;
+   `FirstRunSetupPage.test.tsx` asserts that invalidation.
+3. *`POST /api/prescriptions/...` returns 409 with a `ProblemDetails` naming setup as incomplete
+   while `IsSetupComplete` is false (E-1)* — **met, through the F-14 seam described above.**
+   `SetupGateTests` drives the real filter and gets **409** with
+   `ruleType: "setup-incomplete"` and a detail naming all four missing fields; a further test proves
+   the gate opens once the profile is saved, so it is not merely closed; another proves a
+   signed-out caller gets **401**, not a 409 that would leak whether this clinic is configured.
+4. *An uploaded signature renders in the prescription preview; with no signature, a ruled signature
+   area renders instead* — **met for the preview F-3 owns.** The form renders the uploaded image
+   when present and a **ruled signature area** (`data-testid="signature-rule"`) when not, so what
+   the physician sees is what will print; both branches are asserted. **The prescription PDF itself
+   is F-14's**, and the plan agrees — F-3's own point 8 says F-3 *blocks* F-14. Named here so the
+   reviewer sees the boundary rather than discovering it: `ClinicProfileResponse` carries the
+   signature as a data URL and `null` when absent, which is the contract F-14 consumes.
+5. *The chosen temperature unit is displayed alongside every stored temperature in UI and print
+   (E-24)* — **met to the extent F-3 can meet it, and honestly bounded.** F-3 stores no
+   temperatures — F-11 captures them and F-14 prints them. What F-3 ships is the mechanism that
+   makes the criterion hold *by construction* later: the unit is captured with **no default**
+   (`TemperatureUnit.Unspecified = 0`, so an unanswered column can never masquerade as an answer),
+   it is required for the setup gate, and `shared/format/temperature.ts` is the single function
+   F-11/F-14 render through — it **never** returns a bare number, and returns `37 (unit not set)`
+   rather than `37` if it is ever handed an unconfigured clinic. Asserted by
+   `temperature.test.ts`. **The UI/print half of this criterion cannot be fully closed until F-11
+   and F-14 land, and should be re-checked then.**
+
+**Assumptions and judgement calls recorded inline in the code:**
+
+- `TemperatureUnit.Unspecified = 0` — plan F-3 point 2 requires that "TemperatureUnit is chosen" be
+  checkable, which needs a representable "not chosen" state. Marked `ASSUMPTION` in
+  `TemperatureUnit.cs`.
+- `ClinicProfileResponse` field list — the plan names the DTO but not its shape. The signature is
+  **inlined as a `data:` URL** rather than exposed through a fifth
+  `GET /api/clinic-profile/signature` route, because the plan's route table has exactly four
+  entries and adding one would change what F-14 builds against. Bounded by the same 200 KB cap; the
+  profile is read only on the two settings screens, never per patient or per visit. Marked
+  `ASSUMPTION` in `ClinicProfileResponse.cs`.
+- **`AddressLines` and `PrescriptionFooter` do not gate setup** — a home-visit practice may print no
+  address, and neither field is what makes a prescription dispensable. The plan's point 2 names
+  only four fields; this states the corollary explicitly. Asserted by test.
+- **Removing the signature does not un-gate the clinic** — plan point 1 says a missing signature
+  prints a ruled area, so signing by hand is a supported way to work. Asserted by test.
+- `DELETE`/`POST` on the signature routes return **404** when no profile exists yet. The plan lists
+  200/400/413 for those routes and does not name 404; it follows from the same
+  `NotFoundException` path as `GET`, and the client never hits it because the form withholds the
+  upload control until the profile is saved. Flagged rather than assumed to be intended.
+- Two folders the plan's section 3 tree does not list: `PMS.Api/Filters/` and
+  `frontend/src/shared/format/`. Same class as F-1's `PMS.Application/Exceptions/` and F-2's
+  `frontend/src/shared/config/`; noted for `code-review-pms`.
+- `TextAreaField.tsx` was added beside F-2's `TextField.tsx` so the address and footer inherit the
+  same `autoComplete="off"` E-65 convention rather than each re-deciding it.
+
+**Known environment limitation — E2E written, not proven (unchanged from F-1 and F-2):**
+
+`PMS.E2E/specs/first-run.spec.ts` is written at the plan's named target, covers E-1 (a fresh
+database routes to `/setup`, deep-linking past it fails, the prescription action is refused until
+the profile is saved), and typechecks clean. `playwright test --list` enumerates **25 specs in 3
+files**. A direct launch probe on this host returns **`browserType.launch: spawn EPERM`** — the same
+process-spawn denial recorded against F-1 and F-2, not a defect in this code. **The
+browser-dependent assertions are therefore written but unproven and are not claimed as passing.**
+Each one's behaviour is proven by a suite that does run: the `/setup` redirect by `App.test.tsx`
+and `RequireSetup.test.tsx`; the profile round-trip by `ClinicProfileEndpointTests` and the live
+smoke; the 409 by `SetupGateTests`; the ruled signature area by `ClinicProfilePage.test.tsx`.
+`helpers/credentials.ts` gained `ensureClinicSetup(page)` and `signIn` now clears the setup gate, so
+the existing F-1/F-2 specs still reach the app shell. **The deadline recorded against F-1 stands:
+the harness must work before F-14.**
+
+**Flagged for review — not decided here:**
+
+- **F-2's out-of-band merge (top of this entry).** F-3 sits on top of code that has not passed its
+  own gate. Worth `verification-pms` knowing before it verifies F-3.
+- **The in-memory-versus-Kestrel false green** described above. It is fixed for this endpoint, but
+  the general lesson — `WebApplicationFactory` can report a status Kestrel would not — applies to
+  every integration test in this repo.
+- **AC-5 is only half-closable at F-3** (no temperatures exist yet). It should be re-checked when
+  F-11 and F-14 land rather than treated as fully discharged now.
+- **AC-3's route is F-14's**, proven through a test-only controller. F-14 must add
+  `[RequiresSetupComplete]` to the real `PrescriptionsController`.
+- **React Router v6 advisories are unchanged** (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg; fix in
+  7.18+). F-3 grew the routing surface again — a second `<Navigate>` guard — so the question F-1's
+  verification raised and F-2's re-raised is now three features old. Built as v6 per plan section 2,
+  not silently upgraded, but section 2 should either be amended to v7.18+ or the risk accepted on
+  the record.
+- **F-2's committed seed credential is untouched by this feature** and remains a live exposure once
+  merged; restated only so it is not forgotten between features.
+
+Committed on `feature/f-3-clinic-profile`. Not merged, not pushed, worktree not removed.
 Next: `verification-pms`.

@@ -19,6 +19,9 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IInitialUserSeeder, InitialUserSeeder>();
 
+        // F-3. Scoped: reaches the database through IClinicProfileRepository.
+        services.AddScoped<IClinicProfileService, ClinicProfileService>();
+
         return services;
     }
 }
