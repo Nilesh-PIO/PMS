@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 /**
  * The credential the running instance is seeded with.
  *
- * Defaults to the values committed in `PMS.Api/appsettings.json` under `SeedUser` - see the
+ * Defaults to the values committed in `PMS.Api/appsettings.json` under `SeedDoctorUser` - see the
  * DEVIATION note there and in `InitialUserSeedExtensions.cs`. Override with the
  * PMS_E2E_USERNAME / PMS_E2E_PASSWORD environment variables when running against an instance
  * whose credential was supplied properly, through user-secrets or the environment.

@@ -8,8 +8,13 @@ namespace PMS.Api.Startup;
 /// </summary>
 public static class InitialUserSeedExtensions
 {
-    /// <summary>Configuration section holding the seed credential.</summary>
-    public const string SectionName = "SeedUser";
+    /// <summary>
+    /// Configuration section holding the physician's initial login credential.
+    /// Named distinctly from <c>ConnectionStrings</c> so the one credential deliberately
+    /// committed to this repository is never confused with the connection string, which is
+    /// still supplied by user-secrets and still never committed.
+    /// </summary>
+    public const string SectionName = "SeedDoctorUser";
 
     /// <summary>Key for the seed user name, relative to <see cref="SectionName"/>.</summary>
     public const string UserNameKey = SectionName + ":UserName";
@@ -33,8 +38,10 @@ public static class InitialUserSeedExtensions
     /// <c>PMS/backend/src/PMS.Api/appsettings.json</c> instead. <b>Committing that file puts a
     /// working login credential for this application into git history permanently, where
     /// rotating the password does not remove it.</b> The configuration keys below are read the
-    /// same way either way, so supplying <c>SeedUser__Password</c> as an environment variable
-    /// still overrides the committed value and is the way back to the plan's design.
+    /// same way either way, so supplying <c>SeedDoctorUser__Password</c> as an environment
+    /// variable still overrides the committed value and is the way back to the plan's design.
+    /// The physician is advised to change this password after the first sign-in; F-2 does not
+    /// build a forced-rotation flow, which is out of scope here and part of F-21 (Blocked).
     /// </para>
     /// <para>
     /// Failures here are logged, never thrown. A database that is missing, unmigrated or

@@ -15,7 +15,7 @@ folder-per-feature React structure and the test project layout all follow the pl
 | Feature ID | Feature | Status | Worktree / branch | Last updated | Notes |
 |---|---|---|---|---|---|
 | F-1 | Solution scaffolding, app shell, health check, error contract | **Built & Verified** | `f-1-scaffolding` / `feature/f-1-scaffolding` | 2026-09-01 | Verified by verification-pms 2026-09-01 — all 5 ACs met on independently re-run evidence; 70 tests re-run, 0 failed, 0 skipped. **Two carried items, neither an F-1 code defect:** Playwright browser harness unprovable on this host (must be closed before F-14); branch was merged to `main` before this gate ran (process violation). Next: `code-review-pms`. |
-| F-2 | Login, session policy, idle screen lock | Awaiting verification | `f-2-auth-session` / `feature/f-2-auth-session` | 2026-09-01 | Ready for verification-pms. 211 automated tests pass (108 .NET + 103 Vitest), 0 skipped. Built against the plan's C-44/REC-11 assumption. **Carries a deliberate, user-directed deviation: the seed credential `doctor` / `SeedDoctor#2026!` is committed in plain text in `appsettings.json`** — see the log entry; this is an instruction, not an oversight. E2E browser launch still blocked by the host. |
+| F-2 | Login, session policy, idle screen lock | Awaiting verification | `f-2-auth-session` / `feature/f-2-auth-session` | 2026-09-01 | Ready for verification-pms. 211 automated tests pass (108 .NET + 103 Vitest), 0 skipped — re-run from a clean build in a second pass, plus a live smoke against a throwaway DB. Built against the plan's C-44/REC-11 assumption. **Carries a deliberate, user-directed deviation: the seed credential `doctor` / `SeedDoctor#2026!` is committed in plain text in `appsettings.json` under `SeedDoctorUser`** — see the log entries; this is an instruction, not an oversight. Password rotation after first sign-in is recommended, not enforced (F-21 is `Blocked`). E2E browser launch still blocked by the host. |
 | F-3 | ClinicProfile + first-run setup gate | Not Started | — | — | Depends on F-1, F-2. Needs decision Q-4 (assumption stated). |
 | F-4 | Doctor-configured settings | Not Started | — | — | Depends on F-3. Needs decision Q-9, Q-10 (assumptions stated). |
 | F-5 | Patient registration & profile | Not Started | — | — | Depends on F-1, F-2, F-4. Needs decision Q-7, Q-16, Q-9. |
@@ -369,15 +369,22 @@ both the plan and normal secret handling. It is not an oversight, and `verificat
   (user-secrets / environment variable)". §2 *Environments*: "No connection string, password
   pepper or signing key is ever committed."
 - **What was built instead.** The real seed user name and password are written into the
-  tracked file **`PMS/backend/src/PMS.Api/appsettings.json`**, under a `SeedUser` section:
+  tracked file **`PMS/backend/src/PMS.Api/appsettings.json`**, under a `SeedDoctorUser`
+  section:
 
   ```
-  SeedUser:UserName = doctor
-  SeedUser:Password = SeedDoctor#2026!
+  SeedDoctorUser:UserName = doctor
+  SeedDoctorUser:Password = SeedDoctor#2026!
   ```
 
   These are the credentials to actually sign in with, recorded here in plain text because the
-  user needs them.
+  user needs them. The section is named `SeedDoctorUser` — deliberately distinct from
+  `ConnectionStrings` in the same file — so the one credential that *is* committed here is
+  never mistaken for the connection string, which remains user-secrets-only and uncommitted.
+- **Recommendation, recorded not built: the physician should change this password after the
+  first sign-in.** F-2 does not build a forced-rotation flow; that is out of scope for the
+  feature as planned, and password change / recovery is F-21, which is `Blocked` on C-44.
+  Until F-21 is unblocked, rotating means updating the `AppUsers` row directly.
 - **Consequence, stated plainly: once this branch is committed, a working login credential for
   this application is in git history permanently.** Rotating the password later does not
   remove it from history, and anyone with read access to the repository can sign in. This is
@@ -387,8 +394,8 @@ both the plan and normal secret handling. It is not an oversight, and `verificat
   `<remarks>` block at the read site,
   `PMS/backend/src/PMS.Api/Startup/InitialUserSeedExtensions.cs`.
 - **The route back is a config change, not a code change.** Configuration precedence is
-  untouched, so `SeedUser__UserName` / `SeedUser__Password` as environment variables (or
-  user-secrets) still override the committed values.
+  untouched, so `SeedDoctorUser__UserName` / `SeedDoctorUser__Password` as environment
+  variables (or user-secrets) still override the committed values.
 - **Everything else about the seeder is as specified.** It hashes with PBKDF2-HMAC-SHA256
   before insert, never persists or logs the plaintext, refuses a password under 12 characters,
   and **refuses to run twice** — proven live below.
@@ -604,3 +611,107 @@ F-1 stands: the harness must work before F-14.**
   landing makes it concrete.
 
 Committed on `feature/f-2-auth-session`. Not merged, not pushed, worktree not removed.
+
+---
+
+### 2026-09-01 — F-2 second implementation pass: seed-section rename and independent re-run
+
+**Status unchanged: `Awaiting verification`.** This pass changed one thing and re-proved
+everything. Nothing below is carried over from the entry above — every result is output
+produced in this pass, inside the worktree at
+`C:\Users\NileshMalviya\source\repos\f-2-auth-session`.
+
+**What changed in this pass — the seed config section is now `SeedDoctorUser`.**
+
+The user's instruction named the section `SeedDoctorUser` and asked for it to be "clearly
+labeled so it doesn't get confused with the real connection-string secret-handling
+convention". It was built as `SeedUser`, which is close but not the name given, and
+`SeedDoctorUser` is also the more self-describing of the two for a physician opening
+`appsettings.json` to find their own initial login. Renamed in four places, plus a
+recommendation comment:
+
+- `PMS/backend/src/PMS.Api/appsettings.json` — section key and its `DEVIATION` comment block,
+  now also carrying an explicit **"change this password after the first sign-in"**
+  recommendation and a sentence stating why this section is named separately from
+  `ConnectionStrings` in the same file.
+- `PMS/backend/src/PMS.Api/Startup/InitialUserSeedExtensions.cs` — `SectionName` constant and
+  the `<remarks>` deviation block, which now also records the rotation recommendation and that
+  F-2 deliberately does **not** build a forced-rotation flow (out of scope; that is F-21,
+  `Blocked` on C-44).
+- `PMS/backend/tests/PMS.E2E/specs/helpers/credentials.ts` — the pointer comment.
+- This document.
+
+The environment-variable escape hatch moves with it: `SeedDoctorUser__UserName` /
+`SeedDoctorUser__Password` still override the committed values, so the route back to the
+plan's user-secrets design remains a config change and not a code change.
+
+**Full build and test suite, re-run in this pass — real output:**
+
+| Command (run in the worktree) | Result |
+|---|---|
+| `dotnet build PMS/backend/PMS.sln` | **Build succeeded, 0 Warning(s), 0 Error(s)** |
+| `dotnet test PMS/backend/PMS.sln` | `PMS.Application.Tests` **Failed: 0, Passed: 48, Skipped: 0**; `PMS.Api.IntegrationTests` **Failed: 0, Passed: 60, Skipped: 0** |
+| `npm test` (`vitest run`) in `PMS/frontend` | **9 files, 103 passed, 0 failed, 0 skipped** |
+| `npm run build` in `PMS/frontend` | Succeeded — 93 modules, emitted `index.html` + `assets/` into `PMS/backend/src/PMS.Api/wwwroot` |
+| `tsc --noEmit -p tsconfig.json` on `PMS.E2E` | **exit 0**, no diagnostics |
+
+**Total re-run and passing: 211 automated tests (108 .NET + 103 Vitest), 0 skipped, 0 failed.**
+Counts read, not exit codes — this host is known to print `Passed!` on a zero-test project.
+
+*Environment note, not a code defect:* `PMS.E2E/node_modules/typescript` on this host is a
+partial install missing its `bin/` folder, so `npm run typecheck` inside `PMS.E2E` fails with
+`MODULE_NOT_FOUND` before TypeScript ever runs, and `npm install` reports "up to date" without
+repairing it. The specs were typechecked with the frontend's own TypeScript instead
+(`node ../../../frontend/node_modules/typescript/bin/tsc --noEmit -p tsconfig.json`, exit 0).
+
+**Live smoke test of the seeding path, against a throwaway database — the user's added
+requirement, proven rather than asserted.**
+
+The rename touches the seed read path, and the existing dev database already had a `doctor`
+row, which would have made the seeder skip and proved nothing. So a fresh database was used:
+
+1. Created `PMSDb_F2Smoke`; `dotnet ef database update` applied **both**
+   `20260825170916_InitialCreate` and `20260901093334_AddAppUser`; `SELECT COUNT(*) FROM
+   AppUsers` → **0**.
+2. Started the API against it. Log: `Initial login seeding: Created the initial login
+   'doctor'.` — so `SeedDoctorUser` is read correctly after the rename.
+3. `GET /api/auth/session` with no cookie → **401** with an `application/problem+json` body
+   (`"Your session has ended."`), **not** a 302 to HTML.
+4. `POST /api/auth/login` with a wrong password → **401**.
+5. `POST /api/auth/login` with `doctor` / `SeedDoctor#2026!` → **200**
+   `{"userName":"doctor","expiresUtc":"2026-09-02T02:29:57Z","setupComplete":false}` — 12 hours
+   ahead of sign-in, as the policy states. The `Set-Cookie` header was
+   `pms.session=...; path=/; secure; samesite=strict; httponly`, with **no `expires` and no
+   `max-age`** — a session cookie, not a persistent one (E-62). No token in the response body.
+6. `GET /api/auth/session` with the cookie → **200**. `GET /api/health` and `/api/health/db`
+   without one → **200** each, so the anonymous allow-list is exactly what the plan names.
+   `GET /api/nope` without a cookie → **404 problem+json**, not 401 and not the SPA shell.
+7. `POST /api/auth/reauth` **with no cookie at all** → **200** and a fresh `Set-Cookie`. This
+   is the E-41 mechanism working: the physician can prove identity on a dead session without
+   the client navigating anywhere, so nothing beneath the lock is unmounted.
+8. `POST /api/auth/logout` with the cookie → **204**, with the cookie cleared
+   (`expires=Thu, 01 Jan 1970`, still `secure; samesite=strict; httponly`).
+9. Database after the flow: **exactly 1 row**; `PasswordHash` begins
+   `PBKDF2-SHA256$210000$mvZ1OdzjFVQ...` (90 chars, per-credential salt, cost in the hash);
+   `SELECT COUNT(*) FROM AppUsers WHERE PasswordHash LIKE '%SeedDoctor%'` → **0**, so the
+   plaintext is nowhere in the row. `grep` for the plaintext in the whole application log →
+   **0 occurrences**. `LastLoginUtc` was updated by the sign-in.
+10. **Restarted the API against the same database**: `Initial login seeding skipped
+    (SkippedAlreadySeeded): A login already exists; the seed credential was ignored and nothing
+    was changed.` Row count still **1**. The seeder cannot overwrite a password the physician
+    has since changed.
+11. Stopped the instance and dropped `PMSDb_F2Smoke`. `sys.databases` shows only `PMSDb`
+    remaining, so the dev database was not disturbed by any of the above.
+
+**The credential deviation, restated because it is the one thing that should not be skimmed.**
+`doctor` / `SeedDoctor#2026!` is now in a tracked file and will be in git history permanently
+once this branch is merged; rotating the password later does not remove it from history. That
+is the user's explicit instruction for this single-user local clinic app's bootstrap
+credential, and it is carried out as given — but it is a real exposure, not a formality, and it
+should be an owner's conscious acceptance at review rather than something that passes
+unremarked. **Recommendation on the record: change the password after the first sign-in.** F-2
+does not build a forced-rotation flow — that is out of scope for the feature as planned, and
+password change/recovery is F-21, `Blocked` on C-44.
+
+Committed on `feature/f-2-auth-session`. Not merged, not pushed, worktree not removed.
+Next: `verification-pms`.
