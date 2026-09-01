@@ -21,6 +21,8 @@ Simple, minimal UI optimized for fast data entry during consultations.
 - Secure login (single user authentication).
 - Data encryption (at rest and in transit).
 
+See [08-authentication-authorization.md](08-authentication-authorization.md) for the consolidated authentication/access-model module built from this requirement plus the single-user statements elsewhere in the BRD.
+
 ## Scalability
 
 - Designed for a single clinic with moderate patient volume.

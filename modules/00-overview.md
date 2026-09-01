@@ -81,5 +81,6 @@ The BRD states: "None (all major product decisions defined for Phase 1)." For a 
 | [05-search-navigation.md](05-search-navigation.md) | Quick search, recent patients, navigation |
 | [06-data-export.md](06-data-export.md) | CSV/PDF export |
 | [07-non-functional-requirements.md](07-non-functional-requirements.md) | Usability, performance, reliability, security, scalability, compatibility — apply across every module above |
+| [08-authentication-authorization.md](08-authentication-authorization.md) | Single-user login, access model — consolidated from Users and Stakeholders, Security NFR, and Out of Scope |
 
 For the deeper edge-case analysis and the concrete implementation plan built from this BRD, see `doc/brainstorm-pms-verification.md` and `doc/planning-pms-verification.md`.
