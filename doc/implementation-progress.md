@@ -15,8 +15,8 @@ folder-per-feature React structure and the test project layout all follow the pl
 | Feature ID | Feature | Status | Worktree / branch | Last updated | Notes |
 |---|---|---|---|---|---|
 | F-1 | Solution scaffolding, app shell, health check, error contract | **Built & Verified** | `f-1-scaffolding` / `feature/f-1-scaffolding` | 2026-09-01 | Verified by verification-pms 2026-09-01 — all 5 ACs met on independently re-run evidence; 70 tests re-run, 0 failed, 0 skipped. **Two carried items, neither an F-1 code defect:** Playwright browser harness unprovable on this host (must be closed before F-14); branch was merged to `main` before this gate ran (process violation). Next: `code-review-pms`. |
-| F-2 | Login, session policy, idle screen lock | Awaiting verification | `f-2-auth-session` / `feature/f-2-auth-session` | 2026-09-01 | Ready for verification-pms. 211 automated tests pass (108 .NET + 103 Vitest), 0 skipped — re-run from a clean build in a second pass, plus a live smoke against a throwaway DB. Built against the plan's C-44/REC-11 assumption. **Carries a deliberate, user-directed deviation: the seed credential `doctor` / `SeedDoctor#2026!` is committed in plain text in `appsettings.json` under `SeedDoctorUser`** — see the log entries; this is an instruction, not an oversight. Password rotation after first sign-in is recommended, not enforced (F-21 is `Blocked`). E2E browser launch still blocked by the host. |
-| F-3 | ClinicProfile + first-run setup gate | Awaiting verification | `f-3-clinic-profile` / `feature/f-3-clinic-profile` | 2026-09-01 | Ready for verification-pms. **315 automated tests pass (169 .NET + 146 Vitest), 0 skipped**, re-run from a clean build, plus a live smoke against a throwaway database. Built against the plan's **Q-4** assumption (PNG signature ≤ 200 KB, footer ≤ 500 chars, nothing prints until `IsSetupComplete`). **Dependency note: F-2 is still tracker-status `Awaiting verification` but was merged to `main` at `2eb69d4` before its gate ran — the same out-of-band-merge pattern F-1 recorded.** F-3 was built on that merged code because it is on `main` and demonstrably working, **not** because F-2 is `Built & Verified`; only verification-pms sets that. **One real defect was found by the live smoke and fixed** (oversize signature upload returned 400 instead of the specified 413 — the integration test had passed for a reason that did not hold under real Kestrel; see the log). E2E browser launch still blocked by the host. |
+| F-2 | Login, session policy, idle screen lock | Awaiting verification | `f-2-auth-session` / `feature/f-2-auth-session`; test-fixture fix on `fix-session-expiry-clock` / `fix/session-expiry-clock` | 2026-09-03 | Ready for verification-pms. **The "211 tests pass" claim below was true when written but stopped reproducing on 2026-09-01 20:00 UTC** — `SessionExpiryTests` put only the app's `IClock` under test control and left the cookie handler judging ticket expiry by the real system clock, so 3 of its 4 tests failed permanently from that instant and the 4th passed for the wrong reason. **Root-caused and fixed on `fix/session-expiry-clock` (test fixture only; F-2 application code unchanged); backend now 170 passed / 0 failed / 0 skipped.** Original claim, for the record: 211 automated tests pass (108 .NET + 103 Vitest), 0 skipped — re-run from a clean build in a second pass, plus a live smoke against a throwaway DB. Built against the plan's C-44/REC-11 assumption. **Carries a deliberate, user-directed deviation: the seed credential `doctor` / `SeedDoctor#2026!` is committed in plain text in `appsettings.json` under `SeedDoctorUser`** — see the log entries; this is an instruction, not an oversight. Password rotation after first sign-in is recommended, not enforced (F-21 is `Blocked`). E2E browser launch still blocked by the host. |
+| F-3 | ClinicProfile + first-run setup gate | Awaiting verification | `f-3-clinic-profile` / `feature/f-3-clinic-profile` | 2026-09-03 | Ready for verification-pms. **The "315 tests pass" claim below stopped reproducing on 2026-09-01 20:00 UTC through no fault of F-3** — it inherited F-2's `SessionExpiryTests` fake-clock defect (see the F-2 row). F-3's own code and tests are not implicated. **Fixed on `fix/session-expiry-clock`; backend now 170 passed / 0 failed / 0 skipped.** Original claim, for the record: 315 automated tests pass (169 .NET + 146 Vitest), 0 skipped, re-run from a clean build, plus a live smoke against a throwaway database. Built against the plan's **Q-4** assumption (PNG signature ≤ 200 KB, footer ≤ 500 chars, nothing prints until `IsSetupComplete`). **Dependency note: F-2 is still tracker-status `Awaiting verification` but was merged to `main` at `2eb69d4` before its gate ran — the same out-of-band-merge pattern F-1 recorded.** F-3 was built on that merged code because it is on `main` and demonstrably working, **not** because F-2 is `Built & Verified`; only verification-pms sets that. **One real defect was found by the live smoke and fixed** (oversize signature upload returned 400 instead of the specified 413 — the integration test had passed for a reason that did not hold under real Kestrel; see the log). E2E browser launch still blocked by the host. |
 | F-4 | Doctor-configured settings | Not Started | — | — | Depends on F-3 (now `Awaiting verification`, not yet `Built & Verified`). Needs decision Q-9, Q-10 (assumptions stated). |
 | F-5 | Patient registration & profile | Not Started | — | — | Depends on F-1, F-2, F-4. Needs decision Q-7, Q-16, Q-9. |
 | F-6 | Duplicate detection + `merged_into` pointer | Not Started | — | — | Depends on F-5. Needs decision Q-13. |
@@ -479,6 +479,18 @@ the unlock.
 - `npm run build` → succeeded, emitting to `PMS/backend/src/PMS.Api/wwwroot`.
 - **Total: 211 automated tests passing (up from F-1's 70), 0 skipped.**
 
+> **Correction, 2026-09-03 — this result no longer reproduces and stopped being true on
+> 2026-09-01 at 20:00 UTC.** Three of the four `SessionExpiryTests` began failing on any run
+> after that instant: the fixture pinned a fake `IClock` to a hardcoded `2026-09-01T08:00Z`
+> but left the cookie handler validating ticket expiry against the real system clock, so every
+> ticket went permanently stale 12 hours later. The fourth test kept reporting green **for the
+> wrong reason** (its expected 401 was arriving from real-clock staleness, not from the
+> simulated advance past the absolute cap). The `dotnet test` half of this total was therefore
+> `Failed: 3, Passed: 105` from 2026-09-01 20:00 UTC onward, not `Passed: 108`. Root-caused and
+> fixed on branch `fix/session-expiry-clock` — see the 2026-09-03 log entry at the end of this
+> file. **This was a defect in F-2's test fixture, not in F-2's application code**, which is
+> unchanged by the fix.
+
 New test files, at the plan's named targets plus four the plan implies:
 `PMS.Application.Tests/Services/AuthServiceTests.cs`,
 `PMS.Application.Tests/Services/InitialUserSeederTests.cs`,
@@ -658,6 +670,16 @@ plan's user-secrets design remains a config change and not a code change.
 **Total re-run and passing: 211 automated tests (108 .NET + 103 Vitest), 0 skipped, 0 failed.**
 Counts read, not exit codes — this host is known to print `Passed!` on a zero-test project.
 
+> **Correction, 2026-09-03 — the `dotnet test` row above is no longer reproducible.** It was
+> genuine when run, but it was date-dependent without anyone realising: `SessionExpiryTests`
+> substituted the application's `IClock` and not the cookie handler's `TimeProvider`, so from
+> 2026-09-01 20:00 UTC (the fixture's hardcoded start instant plus the 12-hour
+> `ExpireTimeSpan`) the real clock expired every ticket regardless of the simulated time.
+> `PMS.Api.IntegrationTests` reads **Failed: 3, Passed: 57** on any run after that instant, and
+> one further test passes vacuously. Fixed on `fix/session-expiry-clock`; see the 2026-09-03
+> entry at the end of this file. F-2's application code is untouched by that fix — the defect
+> was entirely in the test fixture, so F-2's *behaviour* is as this entry describes it.
+
 *Environment note, not a code defect:* `PMS.E2E/node_modules/typescript` on this host is a
 partial install missing its `bin/` folder, so `npm run typecheck` inside `PMS.E2E` fails with
 `MODULE_NOT_FOUND` before TypeScript ever runs, and `npm install` reports "up to date" without
@@ -831,6 +853,16 @@ by hand has a complete setup, not a broken one.
 **Total: 315 automated tests passing (169 .NET + 146 Vitest), 0 skipped, 0 failed** — up from
 F-2's 211. Counts read, not exit codes; this host is known to print `Passed!` on a zero-test
 project.
+
+> **Correction, 2026-09-03 — the `dotnet test` row above is no longer reproducible, and it
+> inherited a defect from F-2 rather than introducing one.** F-3 ran on 2026-09-01 while the
+> calendar still happened to agree with `SessionExpiryTests`'s hardcoded fake-clock start
+> instant, so the suite was genuinely green at the time. After 2026-09-01 20:00 UTC it is not:
+> `PMS.Api.IntegrationTests` reads **Failed: 3, Passed: 83**, because that fixture never put the
+> cookie handler's expiry clock under test control. Independently re-confirmed on `main` on
+> 2026-09-03. Nothing in F-3's own code or tests is implicated, and F-3's application behaviour
+> is as this entry describes it. Fixed on `fix/session-expiry-clock` — see the 2026-09-03 entry
+> below.
 
 New test files, at the plan's named targets plus four the plan implies:
 `PMS.Application.Tests/Services/ClinicProfileServiceTests.cs`,
@@ -1014,3 +1046,119 @@ the harness must work before F-14.**
 
 Committed on `feature/f-3-clinic-profile`. Not merged, not pushed, worktree not removed.
 Next: `verification-pms`.
+
+---
+
+### 2026-09-03 — Bug fix (not a Feature ID): F-2's `SessionExpiryTests` validated cookie expiry against the real wall clock
+
+**Scope: one test file. No application code changed, no feature advanced.** This is a defect in
+F-2's test fixture, found and independently reproduced on `main` after F-2 and F-3 had both been
+merged. F-2 and F-3 keep their existing `Awaiting verification` status; nothing here promotes or
+demotes a feature.
+
+- Worktree: `C:\Users\NileshMalviya\source\repos\fix-session-expiry-clock`, branch
+  `fix/session-expiry-clock`, cut from `main` at `990ec19` via `worktree-pms`.
+
+**Root cause — two clocks, only one of them substituted.**
+`ClockControlledWebAppFactory` replaced the application's `IClock` with a `MutableClock` pinned to
+a hardcoded `2026-09-01T08:00:00Z`. That covered the application's half of the session path:
+`AuthService` stamps the absolute-expiry claim from `IClock`, `AuthController.SignInAsync` stamps
+`AuthenticationProperties.IssuedUtc` from `IClock`, and `EnforceAbsoluteExpiryAsync` compares
+against `IClock`. It did **not** cover the cookie authentication handler itself, which validates
+the ticket's own `ExpiresUtc` against `CookieAuthenticationOptions.TimeProvider` — left at its
+default of `TimeProvider.System`.
+
+So the ticket was *issued* at the simulated instant and *judged* by the real one. From
+`2026-09-01T08:00Z` + `ExpireTimeSpan` (12 h) = **2026-09-01 20:00 UTC** onward, every ticket these
+tests issued was already expired to the handler before the first assertion ran. The failure is
+permanent and date-driven, not flaky and not tied to a particular simulated instant: it fails on
+every run from that moment onward.
+
+**Reproduced before fixing** — `dotnet test PMS.sln --filter "FullyQualifiedName~SessionExpiryTests"`
+in the fresh worktree: **Failed: 3, Passed: 1, Skipped: 0, Total: 4**.
+
+**The fourth test was passing for the wrong reason — confirmed, not assumed.**
+`A_session_is_dead_once_it_passes_twelve_hours_however_active_it_has_been` expects a 401, and a 401
+is exactly what real-clock staleness also produces. It was asserting the right status code sourced
+from the wrong mechanism, and it never noticed that its 11 intermediate "keep using the session"
+requests had all been 401s too. Its `for` loop discarded every intermediate response without
+asserting on it, which is what let the vacuous pass hide.
+
+**What changed** (`PMS/backend/tests/PMS.Api.IntegrationTests/Endpoints/SessionExpiryTests.cs`, the
+only file touched):
+
+1. `MutableClock` now backs **both** clocks from one instant: it still implements `IClock`, and it
+   exposes a `TimeProvider` property whose nested `ClockBackedTimeProvider` overrides `GetUtcNow()`
+   to return the same field. `Advance`/`Reset` move both by construction, so the two cannot drift
+   apart. Timers and timestamps deliberately stay on the base system implementation — only
+   wall-clock reads are simulated, so nothing makes a real timer wait years.
+2. `ClockControlledWebAppFactory` adds
+   `services.Configure<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme,
+   o => o.TimeProvider = Clock.TimeProvider)`. Scoped to the cookie scheme rather than registered as
+   a host-wide `TimeProvider`: data protection, Kestrel and hosted services have no business being
+   told it is a different year, and widening it would trade this bug for a subtler one.
+3. The fixed start instant is **kept** (reproducibility) but moved to `2020-01-01T08:00:00Z` and
+   documented as deliberately long past. This makes the class self-enforcing: if anyone ever
+   un-wires the `TimeProvider` again, every ticket is years stale and the suite fails on the *next*
+   run rather than on some future date nobody is watching for. The hardcoded date was not the root
+   cause and was not simply deleted.
+4. New regression guard `The_cookie_handler_judges_expiry_by_the_fixture_clock_not_the_wall_clock`
+   asserts against the resolved `CookieAuthenticationOptions` that `TimeProvider` is the fixture's
+   instance and that it advances with `Clock.Advance` — checked at the options level precisely
+   because a status code cannot distinguish "expired by simulation" from "expired by the calendar".
+5. The absolute-cap test now **asserts every one of its 11 hourly requests is 200** before expecting
+   the 401, and additionally asserts that sliding renewal actually reissued the `pms.session` cookie
+   during those hours. That is what makes the final 401 attributable to the absolute cap rather than
+   to the sliding window running out — the renewal pushes the handler's own window out to roughly
+   hour 19, so at hour 12:01 only the absolute-expiry claim can be rejecting it. The two re-auth
+   tests gained an explicit "alive first" assertion for the same reason.
+
+**Negative control — the fix is proven load-bearing.** With the `TimeProvider` registration
+temporarily removed and everything else left in place, the suite goes to **Failed: 5, Passed: 0**.
+All five fail, *including* the absolute-cap test that used to pass vacuously. Restoring the one
+registration returns it to **Failed: 0, Passed: 5**. The tests now pass because of simulated time
+and fail without it, which is the property that was missing.
+
+**Full suite, run in the worktree — real output, counts read rather than exit codes:**
+
+| Command (run in the worktree) | Result |
+|---|---|
+| `dotnet build PMS/backend/PMS.sln` | **Build succeeded, 0 Warning(s), 0 Error(s)** |
+| `dotnet test PMS/backend/PMS.sln` | `PMS.Application.Tests` **Failed: 0, Passed: 83, Skipped: 0**; `PMS.Api.IntegrationTests` **Failed: 0, Passed: 87, Skipped: 0** |
+| `dotnet test --filter "FullyQualifiedName~SessionExpiryTests"` | **Failed: 0, Passed: 5, Skipped: 0, Total: 5** |
+| `npm test` (`vitest run`) in `PMS/frontend` | **13 files, 146 passed, 0 failed, 0 skipped** |
+
+**Total: 316 automated tests passing (170 .NET + 146 Vitest), 0 skipped, 0 failed** — backend up 1
+from F-3's 169, the new regression guard. No other test regressed. The frontend was re-run only to
+confirm the untouched suite is genuinely green today; no frontend file was modified.
+
+**No other test file shares this defect — checked, not assumed.** `ClockControlledWebAppFactory`
+and `MutableClock` are referenced only by `SessionExpiryTests.cs`; every other integration test uses
+`TestWebAppFactory` or `NoDatabaseWebAppFactory` with the real `IClock` and the real
+`TimeProvider`, which are mutually consistent, so no ticket is ever issued and judged by different
+clocks. The two nearby time-touching tests were read and are sound:
+`AuthEndpointTests` asserts the returned expiry is close to real `UtcNow + 12h` with a 2-minute
+tolerance (real clock throughout — correct), and `AuthorizationPolicyTests` reads back
+`SlidingExpiration`/`ExpireTimeSpan` from the options object without simulating time at all.
+`PMS.Application.Tests` uses its own `FixedClock` against services that have no cookie handler in
+play.
+
+**Stale claims corrected above, not deleted:** the F-2 and F-3 table rows and their log entries'
+test-result sections now carry dated corrections recording that their `dotnet test` totals were
+genuine when run but ceased to reproduce on 2026-09-01 20:00 UTC. The original numbers are left in
+place for the record; the log stays append-only.
+
+**Flagged for review — not decided here:**
+
+- **This is the same class of defect as F-3's "in-memory versus Kestrel false green"**: a test that
+  reported the right answer for a reason that did not hold. Two instances in three features suggests
+  it is worth a standing check during verification — *why* is this test green, not just *is* it.
+- **The fixture's start instant is now 2020**, which is intentional (see item 3) but will look wrong
+  to a reader who does not read the comment. Called out so it is not "tidied up" back to a
+  present-day date, which would restore the latent bug.
+- **F-2 and F-3 are both still `Awaiting verification` and both already merged to `main`** — the
+  out-of-band-merge pattern already recorded twice. This bug is a concrete example of what that
+  sequencing costs: a defect in F-2's test suite reached `main` and was inherited by F-3's baseline
+  before either feature's gate had run.
+
+Committed on `fix/session-expiry-clock`. Not merged, not pushed, worktree not removed.
