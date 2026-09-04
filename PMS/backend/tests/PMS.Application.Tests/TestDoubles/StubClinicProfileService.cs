@@ -2,6 +2,7 @@ using PMS.Application.Abstractions;
 using PMS.Application.Dtos.Clinic;
 using PMS.Application.Exceptions;
 using PMS.Application.Services;
+using PMS.Domain.Enums;
 
 namespace PMS.Application.Tests.TestDoubles;
 
@@ -13,8 +14,22 @@ namespace PMS.Application.Tests.TestDoubles;
 public sealed class StubClinicProfileService : IClinicProfileService
 {
     private readonly bool _setupComplete;
+    private readonly TemperatureUnit? _temperatureUnit;
 
-    public StubClinicProfileService(bool setupComplete = false) => _setupComplete = setupComplete;
+    /// <param name="setupComplete">What "is setup complete?" answers.</param>
+    /// <param name="temperatureUnit">
+    /// F-4. The clinic's temperature unit, which <c>ClinicSettingsService</c> reads through this
+    /// interface to label a temperature threshold (E-24). <c>null</c> means no profile has been
+    /// saved at all, which is a state F-4 has to survive: the settings screens are reachable
+    /// before anything downstream needs a unit.
+    /// </param>
+    public StubClinicProfileService(
+        bool setupComplete = false,
+        TemperatureUnit? temperatureUnit = null)
+    {
+        _setupComplete = setupComplete;
+        _temperatureUnit = temperatureUnit;
+    }
 
     /// <summary>How many times the session path asked. Pins that it is a read, not a cached claim.</summary>
     public int IsSetupCompleteCallCount { get; private set; }
@@ -31,7 +46,18 @@ public sealed class StubClinicProfileService : IClinicProfileService
             : throw new DomainRuleException(ClinicProfileService.SetupIncompleteRuleType, "Setup is incomplete.");
 
     public Task<ClinicProfileResponse?> GetAsync(CancellationToken cancellationToken) =>
-        throw new NotSupportedException("Not exercised by the auth tests.");
+        Task.FromResult<ClinicProfileResponse?>(_temperatureUnit is null
+            ? null
+            : new ClinicProfileResponse(
+                "Sunrise Clinic",
+                "12 Station Road",
+                "Dr A. Mehta",
+                "MMC-99215",
+                null,
+                _temperatureUnit.Value,
+                null,
+                _setupComplete,
+                new DateTimeOffset(2026, 9, 1, 9, 0, 0, TimeSpan.Zero)));
 
     public Task<ClinicProfileResponse> UpsertAsync(
         UpsertClinicProfileRequest request,

@@ -24,6 +24,12 @@ function renderAt(
   stubFetch({
     '/api/auth/session': () => problemResponse(401),
     '/api/clinic-profile': () => jsonResponse(aClinicProfile()),
+    // F-4. The two settings screens fetch as soon as they mount; without these the route test
+    // would be asserting against an error state rather than the screen itself.
+    '/api/clinic-settings/options?category=Gender&includeInactive=true': () => jsonResponse([]),
+    '/api/clinic-settings/options?category=VitalsNotRecordedReason&includeInactive=true': () =>
+      jsonResponse([]),
+    '/api/clinic-settings/vital-ranges': () => jsonResponse([]),
   });
 
   const client = new QueryClient({
@@ -57,6 +63,15 @@ describe('app shell routing', () => {
     renderAt(path);
 
     expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['/settings/options', 'Lists'],
+    ['/settings/vitals-ranges', 'Vital ranges'],
+  ])('registers %s and renders F-4s real settings page', async (path, heading) => {
+    renderAt(path);
+
+    expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
   });
 
   it('registers /settings/clinic and renders F-3s real clinic profile page', async () => {
@@ -120,7 +135,18 @@ describe('app shell route guard (F-2)', () => {
     vi.unstubAllGlobals();
   });
 
-  it.each(['/', '/patients', '/patients/abc-123', '/visits/abc-123', '/settings/clinic', '/export', '/audit'])(
+  it.each([
+    '/',
+    '/patients',
+    '/patients/abc-123',
+    '/visits/abc-123',
+    '/settings/clinic',
+    // F-4's two screens are behind the same guard as everything else under `/`.
+    '/settings/options',
+    '/settings/vitals-ranges',
+    '/export',
+    '/audit',
+  ])(
     'sends a signed-out visitor from %s to the login screen',
     (path) => {
       renderAt(path, { signedIn: false });

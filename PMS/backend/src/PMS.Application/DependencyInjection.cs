@@ -22,6 +22,10 @@ public static class DependencyInjection
         // F-3. Scoped: reaches the database through IClinicProfileRepository.
         services.AddScoped<IClinicProfileService, ClinicProfileService>();
 
+        // F-4. Scoped: reaches the database through IClinicSettingsRepository, and reads the
+        // clinic's temperature unit through IClinicProfileService rather than re-deriving it.
+        services.AddScoped<IClinicSettingsService, ClinicSettingsService>();
+
         return services;
     }
 }

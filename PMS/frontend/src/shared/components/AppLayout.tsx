@@ -12,6 +12,9 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Today', end: true },
   { to: '/patients', label: 'Patients' },
   { to: '/settings/clinic', label: 'Clinic settings' },
+  // F-4. Two more settings screens: the dropdown lists, and the physician's own vital ranges.
+  { to: '/settings/options', label: 'Lists' },
+  { to: '/settings/vitals-ranges', label: 'Vital ranges' },
   { to: '/export', label: 'Export' },
   { to: '/audit', label: 'Audit log' },
 ];

@@ -26,6 +26,18 @@ public class PmsDbContext : DbContext
     /// </summary>
     public DbSet<ClinicProfile> ClinicProfile => Set<ClinicProfile>();
 
+    /// <summary>
+    /// F-4. The doctor-configured lookup lists - gender options and vitals not-recorded reasons.
+    /// Plural, unlike <see cref="ClinicProfile"/>: this one really is a collection.
+    /// </summary>
+    public DbSet<SettingOption> SettingOptions => Set<SettingOption>();
+
+    /// <summary>
+    /// F-4. The doctor-defined plausibility thresholds. Empty until the physician enters one, and
+    /// empty is a fully supported state - it means no vital ever produces a warning (E-12).
+    /// </summary>
+    public DbSet<VitalRangeSetting> VitalRangeSettings => Set<VitalRangeSetting>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
