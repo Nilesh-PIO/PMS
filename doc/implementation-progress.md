@@ -17,7 +17,7 @@ folder-per-feature React structure and the test project layout all follow the pl
 | F-1 | Solution scaffolding, app shell, health check, error contract | **Built & Verified** | `f-1-scaffolding` / `feature/f-1-scaffolding` | 2026-09-01 | Verified by verification-pms 2026-09-01 — all 5 ACs met on independently re-run evidence; 70 tests re-run, 0 failed, 0 skipped. **Two carried items, neither an F-1 code defect:** Playwright browser harness unprovable on this host (must be closed before F-14); branch was merged to `main` before this gate ran (process violation). Next: `code-review-pms`. |
 | F-2 | Login, session policy, idle screen lock | Awaiting verification | `f-2-auth-session` / `feature/f-2-auth-session`; test-fixture fix on `fix-session-expiry-clock` / `fix/session-expiry-clock` | 2026-09-03 | Ready for verification-pms. **The "211 tests pass" claim below was true when written but stopped reproducing on 2026-09-01 20:00 UTC** — `SessionExpiryTests` put only the app's `IClock` under test control and left the cookie handler judging ticket expiry by the real system clock, so 3 of its 4 tests failed permanently from that instant and the 4th passed for the wrong reason. **Root-caused and fixed on `fix/session-expiry-clock` (test fixture only; F-2 application code unchanged); backend now 170 passed / 0 failed / 0 skipped.** Original claim, for the record: 211 automated tests pass (108 .NET + 103 Vitest), 0 skipped — re-run from a clean build in a second pass, plus a live smoke against a throwaway DB. Built against the plan's C-44/REC-11 assumption. **Carries a deliberate, user-directed deviation: the seed credential `doctor` / `SeedDoctor#2026!` is committed in plain text in `appsettings.json` under `SeedDoctorUser`** — see the log entries; this is an instruction, not an oversight. Password rotation after first sign-in is recommended, not enforced (F-21 is `Blocked`). E2E browser launch still blocked by the host. |
 | F-3 | ClinicProfile + first-run setup gate | Awaiting verification | `f-3-clinic-profile` / `feature/f-3-clinic-profile` | 2026-09-03 | Ready for verification-pms. **The "315 tests pass" claim below stopped reproducing on 2026-09-01 20:00 UTC through no fault of F-3** — it inherited F-2's `SessionExpiryTests` fake-clock defect (see the F-2 row). F-3's own code and tests are not implicated. **Fixed on `fix/session-expiry-clock`; backend now 170 passed / 0 failed / 0 skipped.** Original claim, for the record: 315 automated tests pass (169 .NET + 146 Vitest), 0 skipped, re-run from a clean build, plus a live smoke against a throwaway database. Built against the plan's **Q-4** assumption (PNG signature ≤ 200 KB, footer ≤ 500 chars, nothing prints until `IsSetupComplete`). **Dependency note: F-2 is still tracker-status `Awaiting verification` but was merged to `main` at `2eb69d4` before its gate ran — the same out-of-band-merge pattern F-1 recorded.** F-3 was built on that merged code because it is on `main` and demonstrably working, **not** because F-2 is `Built & Verified`; only verification-pms sets that. **One real defect was found by the live smoke and fixed** (oversize signature upload returned 400 instead of the specified 413 — the integration test had passed for a reason that did not hold under real Kestrel; see the log). E2E browser launch still blocked by the host. |
-| F-4 | Doctor-configured settings | Not Started | — | — | Depends on F-3 (now `Awaiting verification`, not yet `Built & Verified`). Needs decision Q-9, Q-10 (assumptions stated). |
+| F-4 | Doctor-configured settings | Awaiting verification | `f-4-clinic-settings` / `feature/f-4-clinic-settings` | 2026-09-04 | Ready for verification-pms. Built against the plan's **Q-9** assumption (gender seeded Female/Male/Other/Not stated, "Not stated" never removable — E-23) and **Q-10 / Q-2** (temperature unit from `ClinicProfile`, BP in mmHg, thresholds blank by default, warnings soft — E-12, E-24). **417 automated tests pass (243 .NET + 174 Vitest), 0 failed, 0 skipped**, re-run from a clean build, plus a live smoke against a throwaway database under real Kestrel. **Dependency note: F-3 is still tracker-status `Awaiting verification` but is on `main` at `990ec19`; F-4 was built on it because it is on `main` and demonstrably working (its migration applies and its endpoints answer live), not because F-3 is `Built & Verified` — only verification-pms sets that.** Carries one commit that is **not** F-4 work: the `fix/session-expiry-clock` test-fixture fix, cherry-picked file-only because that branch is still unmerged and `main` alone fails 3 tests. E2E `settings.spec.ts` written and typechecked; browser launch still blocked by the host. |
 | F-5 | Patient registration & profile | Not Started | — | — | Depends on F-1, F-2, F-4. Needs decision Q-7, Q-16, Q-9. |
 | F-6 | Duplicate detection + `merged_into` pointer | Not Started | — | — | Depends on F-5. Needs decision Q-13. |
 | F-7 | Patient search, recent patients, picker | Not Started | — | — | Depends on F-5. Needs decision C-22 (no `Q-` exists). |
@@ -1162,3 +1162,264 @@ place for the record; the log stays append-only.
   before either feature's gate had run.
 
 Committed on `fix/session-expiry-clock`. Not merged, not pushed, worktree not removed.
+
+---
+
+### 2026-09-04 — F-4 doctor-configured settings (gender list, vitals reasons, plausibility ranges)
+
+**Status: `Awaiting verification`.** Handed to verification-pms. Branch left for review, not merged,
+not pushed, worktree not removed.
+
+- Got an isolated worktree from `worktree-pms` at
+  `C:\Users\NileshMalviya\source\repos\f-4-clinic-settings`, branch `feature/f-4-clinic-settings`,
+  cut from `main` at `172e946`. Confirmed distinct from the main working tree before writing
+  anything, and confirmed `doc/planning-pms-verification.md` in the worktree is identical to the
+  committed plan on `main`.
+
+**Built against the plan's stated assumptions, both of which are still open questions:**
+
+- **Q-9 (gender values).** Seeded `Female`, `Male`, `Other`, `Not stated`, doctor-editable, and
+  **"Not stated" can never be removed or deactivated** (E-23). The seed is data in the migration,
+  not logic: no code branches on any gender value.
+- **Q-10 / Q-2 (units, thresholds, reasons).** Temperature unit comes from F-3's `ClinicProfile`
+  (E-24); BP is always mmHg; **plausibility thresholds are empty by default**, entered by the
+  physician, and a blank threshold fires nothing. Warnings are **soft — confirm and continue,
+  never a block** (E-12). Vitals not-recorded reasons seeded `Equipment unavailable`,
+  `Patient declined`, `Not clinically indicated`, `Other`, doctor-editable.
+- **This feature authors no clinical range.** The only numeric constants it carries are storage and
+  list limits, and a unit test asserts by reflection that the service holds nothing else — if
+  someone adds `const decimal NormalTemperatureHigh`, that test fails.
+
+---
+
+#### Dependency flag — F-3 is not `Built & Verified`, and F-4 was built on it anyway
+
+Stated explicitly rather than absorbed, and it is the third occurrence of the same pattern.
+**F-3 is on `main` at `990ec19` but its tracker status is still `Awaiting verification`**; F-2 and
+F-1 are the same story. F-4 depends on F-3 in the plan's dependency map, and the dependency was
+treated as satisfied on the evidence that F-3's code is on `main` and demonstrably working — I
+confirmed that myself rather than assuming it: `20260901163456_AddClinicProfile` applies to a fresh
+database, `PUT /api/clinic-profile` answers 200 live, and F-4's temperature-unit read through
+`IClinicProfileService` returns `°C`/`°F` from a real saved profile. **That is not the same as F-3
+having passed its gate, and only verification-pms can say it has.**
+
+#### Carried-in commit — the F-2 `SessionExpiryTests` fix, which is not F-4 work
+
+`main` at `172e946` still fails 3 tests on every run: F-2's `SessionExpiryTests` clock defect,
+already root-caused and fixed on `fix/session-expiry-clock` (`226e96b`), **which has never been
+merged**. Building F-4 on that baseline would have meant reporting a red suite with an unrelated
+cause, so the fix was carried in as its own commit (`9e45c81`), ahead of the F-4 commit and clearly
+labelled. **Only the test file was taken** — not that commit's `doc/implementation-progress.md`
+changes, which are already on `main` — so the F-4 commit stays clean. Reproduced both states here:
+`main` alone gives `Failed: 3, Passed: 106`; with the fix, `Failed: 0, Passed: 110`. If
+`fix/session-expiry-clock` is merged separately it is identical content and will not conflict.
+
+---
+
+**Built (backend):**
+
+- `PMS.Domain`: `Enums/SettingCategory.cs`, `Enums/VitalMetric.cs`, `Entities/SettingOption.cs`,
+  `Entities/VitalRangeSetting.cs` — per plan section 4.
+- `PMS.Application`: `Abstractions/IClinicSettingsService.cs`,
+  `Abstractions/IClinicSettingsRepository.cs`; `Dtos/Clinic/SettingOptionResponse.cs`,
+  `SettingOptionListRequest.cs`, `VitalRangeResponse.cs`, `VitalRangeListRequest.cs`,
+  `VitalWarning.cs`; `Services/ClinicSettingsService.cs`, `Services/VitalRangeEvaluator.cs`,
+  `Services/VitalMetrics.cs`; registered in `DependencyInjection.cs`.
+- `PMS.Infrastructure`: `Persistence/Configurations/SettingOptionConfiguration.cs` (unique index on
+  `(Category, Value)`, blank-value check constraint, the `HasData` seed),
+  `Persistence/Configurations/VitalRangeSettingConfiguration.cs` (`decimal(6,2)` nullable bounds,
+  unique metric index, `CK_VitalRangeSetting_LowNotAboveHigh`),
+  `Persistence/Repositories/ClinicSettingsRepository.cs`, two `DbSet`s on `PmsDbContext`, and
+  migration **`20260904050020_AddClinicSettings`** — the name the plan specifies.
+- `PMS.Api`: `Controllers/ClinicSettingsController.cs` — the four routes exactly as the plan's table
+  specifies. Depends on `IClinicSettingsService`, never on `PmsDbContext`. **There is no DELETE
+  route, and its absence is the feature.**
+
+**Four backend decisions worth naming:**
+
+1. **Omitting an option retires it; nothing is ever deleted.** `Patient.Gender` is a `string` in
+   plan section 4, not a foreign key — deliberately, so a 2026 consultation still reads as it was
+   recorded. A deleted row would therefore leave old records showing a value that appears nowhere
+   in settings. The PUT turns an omission into `IsActive = false`, and there is no delete path on
+   the service or the controller at all.
+2. **One repository for two tables.** Unlike F-2/F-3's one-per-aggregate split, because a list edit
+   is a mixed batch of inserts, reorders and retirements that must land together — one
+   `SaveChangesAsync`, one transaction. A half-applied reorder would leave two options in one slot.
+   Asserted by a test that pins `SaveCount == 1`.
+3. **A list may not be emptied of active options.** `Gender / Not stated` is protected outright
+   (E-23). The vitals reason list is protected as a whole rather than per value, because F-11's
+   mandatory-or-reason escape hatch (REC-3, E-18) reads it — emptied, that escape hatch becomes the
+   dead end it exists to remove, and a dead end is what makes someone write a BP from memory.
+4. **Categories and metrics travel as names, not numbers.** The plan's own routes are
+   `?category=Gender` and `/options/{category}`, so a payload answering `1` would be two
+   vocabularies for one concept. The columns stay `int` for F-3's stated reason.
+
+**Built (frontend):**
+
+- `features/clinic/ClinicSettingsPage.tsx` (route `/settings/options`),
+  `features/clinic/VitalRangesPage.tsx` (route `/settings/vitals-ranges`),
+  `features/clinic/useClinicSettings.ts` (`useSettingOptions(category)`, `useVitalRanges()`, plus
+  the two save hooks), `features/clinic/types/clinicSettings.ts`; `clinicApi.ts` extended with
+  `getOptions` / `saveOptions` / `getVitalRanges` / `saveVitalRanges` as the plan names them.
+- `routes.tsx` and `REGISTERED_PATHS` gain both paths; `AppLayout.tsx` gains both nav links; the
+  new CSS is appended to `index.css`.
+
+**Data integrity check (F-4 section 5) — the mechanism, not a mention.**
+The duplicate risk C-20 names (free-text gender producing `M`/`Male`/`male` in one column) is closed
+in three places that do not depend on each other: the service rejects a case-insensitive duplicate
+with a field-keyed 400; the unique index on `(Category, Value)` rejects it at the database under the
+default case-insensitive collation; and the editor catches it before a request is sent. The orphan
+risk is closed by never deleting — proven at the database in the live smoke, where a retired `Other`
+is still row id 3 with `IsActive = 0`. A test inserts a duplicate straight through the `DbContext`,
+bypassing the service entirely, and asserts the database still refuses it — because SSMS is a stated
+tool of this stack and the service is not the only writer.
+
+**Test results — run in the worktree after deleting every `bin/` and `obj/`, real output:**
+
+| Command (run in the worktree) | Result |
+|---|---|
+| `dotnet build PMS/backend/PMS.sln` | **Build succeeded, 0 Warning(s), 0 Error(s)** |
+| `dotnet test PMS/backend/PMS.sln` | `PMS.Application.Tests` **Failed: 0, Passed: 133, Skipped: 0**; `PMS.Api.IntegrationTests` **Failed: 0, Passed: 110, Skipped: 0** |
+| `npx vitest run` in `PMS/frontend` | **15 files, 174 passed, 0 failed, 0 skipped** |
+| `npm run build` in `PMS/frontend` | Succeeded — 106 modules, emitted into `PMS/backend/src/PMS.Api/wwwroot` |
+| `tsc --noEmit` on `PMS.E2E` | **exit 0**, no diagnostics; `playwright test --list` enumerates **93 tests in 4 files** |
+| `dotnet ef migrations has-pending-model-changes` | **"No changes have been made to the model since the last migration"** |
+
+**Total: 417 automated tests passing (243 .NET + 174 Vitest), 0 skipped, 0 failed** — up from 316.
+F-4 contributes 50 backend unit, 23 backend integration and 26 frontend unit tests. Counts read,
+not exit codes: this host is known to print `Passed!` on a zero-test project.
+
+New test files at the plan's named targets:
+`PMS.Application.Tests/Services/ClinicSettingsServiceTests.cs`,
+`PMS.Api.IntegrationTests/Endpoints/ClinicSettingsEndpointTests.cs` (which also holds
+`ClinicSettingsSeedTests`), `frontend/src/features/clinic/VitalRangesPage.test.tsx`, plus
+`frontend/src/features/clinic/ClinicSettingsPage.test.tsx` and
+`PMS.Application.Tests/TestDoubles/FakeClinicSettingsRepository.cs` which the plan implies.
+`App.test.tsx` and `TestDoubles/StubClinicProfileService.cs` were extended, not weakened.
+
+**Three defects found by these tests during the build, all fixed:**
+
+1. `An_omitted_option_is_retired_rather_than_deleted` used `Single(o => o.Value == "Other")` — and
+   `Other` is legitimately a value in **both** seeded lists. The test now filters by category and
+   additionally asserts that editing the gender list leaves the vitals reason list untouched.
+2. `No_clinical_range_is_compiled_into_the_settings_code` filtered on `FieldInfo.IsLiteral`, which
+   **silently skips every `const decimal`** — the compiler emits those as `static readonly`. That is
+   precisely the type a clinical threshold would be written as, so the guard had a hole exactly
+   where it mattered. Now `IsLiteral || IsInitOnly`.
+3. `ClinicSettingsPage.test.tsx` waited on `findByRole('heading')`, which the *loading* branch also
+   renders — so every assertion after it raced against the fetch. Now keyed to the labelled
+   `region`, which only exists once data has arrived.
+
+**Live smoke against a running instance** (`ASPNETCORE_URLS=http://localhost:5099`, throwaway
+LocalDB `PMSDb_F4Smoke`, dropped afterwards; run on its own port so the long-running dev instance
+on this host was not touched):
+
+| Check | Result |
+|---|---|
+| `dotnet ef database update` on a fresh database | applied all four migrations including `20260904050020_AddClinicSettings` |
+| `SELECT ... FROM SettingOption` | **8 seeded rows**, gender 1-4 and reasons 1-4, all active |
+| `SELECT COUNT(*) FROM VitalRangeSetting` | **0** — nothing is seeded, so nothing can warn (AC 3) |
+| `GET options` / `GET vital-ranges` with no cookie | **401** both — default-deny still holds |
+| `GET /api/clinic-settings/options?category=Gender` | 200, four options in `DisplayOrder`, `Not stated` flagged `isProtected` |
+| `GET ...?category=Bloodtype` | **400** naming the categories that exist — not an empty 200 |
+| `PUT` dropping `Not stated` | **400**, and a re-read shows the list **completely unchanged** |
+| `PUT` with `Male` + `male` | **400** keyed `Items[1].Value` (C-20) |
+| `PUT` reorder + retire `Other` + add `Non-binary` | 200; dropdown view returns the four active ones in the new order |
+| `SELECT ... FROM SettingOption` after that | `Other` is **still row id 3**, `IsActive = 0` — retired, not deleted |
+| `PUT vital-ranges` upper-only | 200; **`SELECT` shows `WarnLow = NULL`, `WarnHigh = 42.00`** — never `0` |
+| `PUT` inverted range / unknown metric | **400** both |
+| Clearing a threshold | 200, both bounds back to `null` — silent again |
+| E-24 end to end | with the clinic on Celsius the temperature threshold reports `unit: "°C"`; switched to Fahrenheit, `"°F"`; with no profile at all, `null` rather than a guess |
+| F-1/F-2/F-3 regressions | `health=200 health-db=200 unmatched-api=404 clinic-profile=404 root=200 deep-route=200` — all unchanged |
+
+**Acceptance criteria — walked line by line:**
+
+1. *The gender dropdown in F-5 renders exactly the active `SettingOption` rows, in `DisplayOrder`* —
+   **met to the extent F-4 can meet it, and honestly bounded.** F-5 does not exist, so what F-4
+   ships is the mechanism it will consume: `GET /api/clinic-settings/options?category=Gender`
+   returns active-only **by default**, ordered by `DisplayOrder`, and `useSettingOptions(category)`
+   defaults the same way — a future feature that forgets the parameter gets the safe answer rather
+   than a dropdown quietly offering a retired option. Proven live and by test. **Re-check at F-5.**
+2. *Deactivating a gender option leaves existing patient records displaying their stored value
+   unchanged* — **met by construction, and only partly observable today.** No patient table exists
+   yet, so the guarantee is structural: the option row is never deleted (asserted at the service, at
+   the API, and in SQL in the smoke above), and `Patient.Gender` is a string per plan section 4 so
+   it does not point at this table at all. **The observable half must be re-checked at F-5.**
+3. *With all `VitalRangeSetting` rows blank, entering any numeric vital produces no warning* —
+   **met.** The table ships **empty**, asserted directly against a pristine migrated database by
+   `ClinicSettingsSeedTests` and in the smoke. `EvaluateVitalsAsync` returns nothing for the
+   brainstorm's own implausible readings (45 °C, pulse 300, BP 400/0) until a threshold exists.
+4. *Setting a threshold then entering a value outside it produces a warning that can be confirmed
+   and saved — never a block* — **met on F-4's side; the confirm-and-save half is F-11's and is
+   named as such.** The evaluator returns warnings and **cannot** refuse: a test asserts it does not
+   throw at any distance outside the range, and the message names the physician's own bound and ends
+   by offering to save as entered. There is no consultation page yet to click "confirm" on — that is
+   F-11, whose plan entry already owns the E-12 E2E assertion.
+5. *No range value is present in source code; all come from the database* — **met, and asserted
+   mechanically rather than by inspection.** A reflection test pins the service's public constants
+   to exactly four storage/list limits. The migration seeds **zero** vital ranges. `VitalMetric` and
+   `VitalMetrics` carry names, labels and units only.
+
+**Assumptions and judgement calls recorded inline in the code:**
+
+- `VitalMetric` has **four** members, splitting BP into systolic and diastolic — the plan names the
+  enum but not its members, and E-12's own example (`400/0`) needs two bounds to express. Marked
+  `ASSUMPTION` in `VitalMetric.cs`.
+- `GET options` takes an **`includeInactive`** flag the plan's route table does not show. Without it
+  the editor could never re-activate a retired option; the default is the safe one. Marked
+  `ASSUMPTION` in `SettingOptionResponse.cs` and the service interface.
+- **Categories and metrics serialize as names.** Marked `ASSUMPTION` in `SettingOptionResponse.cs`.
+  Global JSON options were deliberately **not** changed to a string enum converter — that would have
+  altered F-3's committed `TemperatureUnit` wire shape.
+- `SettingOptionResponse.IsProtected` is sent so the client can render a row without a control the
+  server would refuse. The server refuses it regardless.
+- **`decimal(6,2)`** for thresholds, with the service rejecting anything that would not survive the
+  column rather than letting SQL Server round it silently. Named a **storage** limit in three places
+  so it is not mistaken for a clinical bound.
+- **A value exactly on a bound does not warn** — "warn above 40" means 40 is acceptable.
+- One file the plan's section 3 tree does not list: `features/clinic/useClinicSettings.ts` sits
+  beside `useClinicProfile.ts` rather than in a new feature folder. Same class as F-1's
+  `PMS.Application/Exceptions/`; noted for `code-review-pms`.
+
+**Known environment limitation — E2E written, not proven (unchanged from F-1, F-2, F-3):**
+
+`PMS.E2E/specs/settings.spec.ts` is written, typechecks clean, and enumerates. **`PMS.E2E` had no
+`node_modules` in a fresh worktree**; `npm install` there succeeded (6 packages) and the
+partial-TypeScript problem F-2 recorded did not recur, but browser launch is still blocked on this
+host. The one API-request spec that needs no browser was observed hitting the **stale long-running
+dev instance from 2026-09-02**, which predates F-4 and answers 404 where F-4 answers 401 — a
+reminder that an E2E pass or fail on this host says as much about which instance is listening as
+about the code. Everything that spec asserts is proven above by the integration suite and by the
+live smoke on a dedicated port.
+
+**The plan's E2E line for F-4 cannot be fully written yet, and no `test.fixme` was added.** It asks
+for a warning *on the consultation page* — that is **F-11**, which depends on F-10, which depends on
+F-9. The settings half is covered here; the confirm-and-save half is named in the spec's header as
+belonging to `vitals.spec.ts` when F-11 lands. A skip that looks like coverage is worse than a
+stated gap.
+
+**Flagged for review — not decided here:**
+
+- **Changing the clinic's temperature unit does not convert a threshold already entered.** Found in
+  the live smoke: a `WarnHigh` of 42 set under Celsius still reads 42 after switching to Fahrenheit,
+  now meaning 42 °F. This mirrors F-3's existing behaviour for recorded temperatures and its
+  on-screen warning, so the page now carries the matching sentence — but whether thresholds should
+  be **converted**, **cleared**, or **left with a warning** on a unit change is an owner decision
+  tied to **Q-10**, not a developer one.
+- **Q-9 and Q-10 are still open.** Everything above is the plan's stated default. A different answer
+  is a settings edit plus, for the gender seed, one migration — not a code hunt.
+- **The `Not stated` protection is hardcoded** in `ClinicSettingsService.ProtectedValues`. That is
+  the point (the physician must not be able to remove it), but it is the one place where a list
+  value appears in code, so it is named here rather than left to be discovered.
+- **React Router v6 advisories are unchanged** (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg; fix in
+  7.18+). F-4 grew the routing surface by two more routes. Four features have now raised this;
+  section 2 should either be amended to v7.18+ or the risk accepted on the record.
+- **`dotnet-ef` is installed after all** (10.0.11) — `CLAUDE.md` still lists it as a blocker under
+  "Known environment gotchas". The migration was created with **`--no-build`**: the plain
+  `dotnet ef migrations add` hung for over ten minutes on host build/startup contention and had to
+  be killed. Worth correcting in `CLAUDE.md`, and worth knowing for every later migration.
+- **F-2's committed seed credential is untouched by this feature** and remains a live exposure;
+  restated only so it is not forgotten between features.
+
+Committed on `feature/f-4-clinic-settings`. Not merged, not pushed, worktree not removed.
+Next: `verification-pms`.

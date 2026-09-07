@@ -388,3 +388,88 @@ body {
   flex-wrap: wrap;
   margin-top: 0.5rem;
 }
+
+/* --- F-4: doctor-configured settings ------------------------------------- */
+
+.settings-list {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--pms-border);
+}
+
+.settings-list__intro,
+.settings-list__note {
+  max-width: 44rem;
+  color: var(--pms-muted);
+  font-size: 0.875rem;
+}
+
+.settings-list__items {
+  list-style: none;
+  margin: 1rem 0;
+  padding: 0;
+}
+
+.settings-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0;
+  border-bottom: 1px dashed var(--pms-border);
+}
+
+.settings-list__offered,
+.settings-list__reorder {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-top: 1.6rem;
+}
+
+.settings-list__add {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.settings-list__add .button {
+  margin-top: 1.6rem;
+}
+
+.settings-list__saved {
+  margin: 0.5rem 0 0;
+  color: var(--pms-muted);
+  font-size: 0.875rem;
+}
+
+.vital-ranges__list {
+  list-style: none;
+  margin: 1rem 0;
+  padding: 0;
+}
+
+.vital-ranges__row {
+  padding: 0.75rem 0;
+  border-bottom: 1px dashed var(--pms-border);
+}
+
+.vital-ranges__metric {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.vital-ranges__row .field {
+  display: inline-block;
+  margin-right: 1.5rem;
+  min-width: 12rem;
+}
+
+/* A metric with no thresholds is the default state of this system, so it reads as an ordinary
+   note rather than as a warning about something being unfinished. */
+.vital-ranges__state {
+  margin: 0.25rem 0 0;
+  color: var(--pms-muted);
+  font-size: 0.8125rem;
+}
