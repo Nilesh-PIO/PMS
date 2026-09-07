@@ -105,6 +105,27 @@ public class Patient
     /// </summary>
     public string? NormalizedPhone { get; set; }
 
+    /// <summary>
+    /// The key F-6 matches phone numbers on — <see cref="NormalizedPhone"/> with one leading trunk
+    /// zero removed and reduced to its last ten digits. Written by <c>PatientService</c>, never by a
+    /// client. Null when there is no phone, or when it is too short to identify anyone.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A stored column rather than an expression over <see cref="NormalizedPhone"/>, for two
+    /// reasons. It is <em>indexable</em>, so the duplicate check is an index seek rather than a scan
+    /// of every patient on every registration; and it keeps the lossy form separate from the
+    /// faithful one, so the digits the physician actually typed are never overwritten by a matching
+    /// decision.
+    /// </para>
+    /// <para>
+    /// The rule itself, and why it exists at all, lives on <c>PatientNormalizer.PhoneMatchKey</c> —
+    /// it is the answer to Q-13's "when are two phone numbers the same number", and it is what makes
+    /// <c>+91 98765 43210</c> and <c>098765 43210</c> one patient rather than two.
+    /// </para>
+    /// </remarks>
+    public string? PhoneMatchKey { get; set; }
+
     /// <summary>A second way to reach the patient — a relative, a neighbour, a landline.</summary>
     public string? AltContact { get; set; }
 

@@ -40,7 +40,12 @@ public class PatientServiceTests
             new StubClinicProfileService(setupComplete: true, temperatureUnit: TemperatureUnit.Celsius),
             _clock);
 
-        return (new PatientService(patients, settings, _clock), patients);
+        // F-6's duplicate service is used for real rather than stubbed, for the same reason
+        // ClinicSettingsService is: a stub would let these tests keep passing after a change to F-6
+        // that made the registration path start refusing patients it should have accepted.
+        var duplicates = new PatientDuplicateService(patients, _clock);
+
+        return (new PatientService(patients, settings, duplicates, _clock), patients);
     }
 
     private static CreatePatientRequest ARequest(Action<CreatePatientRequest>? tweak = null)

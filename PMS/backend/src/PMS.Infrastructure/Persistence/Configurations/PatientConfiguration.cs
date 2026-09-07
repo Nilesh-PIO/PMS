@@ -18,6 +18,13 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
     /// <summary>Filtered unique index behind the create-idempotency guarantee (E-43, E-46).</summary>
     public const string SubmissionIndexName = "UX_Patient_SubmissionId";
 
+    /// <summary>
+    /// F-6's phone-matching index. Named so the duplicate check's query plan is recognisable in a
+    /// trace, and so a test can assert the index is genuinely in the shipped schema rather than
+    /// merely in the model.
+    /// </summary>
+    public const string PhoneMatchKeyIndexName = "IX_Patient_PhoneMatchKey";
+
     public void Configure(EntityTypeBuilder<Patient> builder)
     {
         builder.ToTable("Patients");
@@ -36,6 +43,10 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
         builder.Property(p => p.Gender).HasMaxLength(100);
         builder.Property(p => p.PrimaryPhone).HasMaxLength(40);
         builder.Property(p => p.NormalizedPhone).HasMaxLength(40);
+
+        // F-6. At most PatientNormalizer.PhoneMatchDigits characters ever reach this column; 20 is
+        // headroom so a change to that rule does not immediately need a migration to widen it.
+        builder.Property(p => p.PhoneMatchKey).HasMaxLength(20);
         builder.Property(p => p.AltContact).HasMaxLength(200);
         builder.Property(p => p.InactiveReason).HasMaxLength(500);
 
@@ -65,6 +76,13 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
         // every registration.
         builder.HasIndex(p => p.NormalizedName);
         builder.HasIndex(p => p.NormalizedPhone);
+
+        // F-6's duplicate check seeks on this and nothing else. It is a separate index from
+        // NormalizedPhone rather than a replacement for it: NormalizedPhone keeps every digit the
+        // physician typed and is what F-7 will offer a last-four-digits search over, while this
+        // column is the deliberately lossy matching key. Two questions, two indexes.
+        builder.HasIndex(p => p.PhoneMatchKey)
+            .HasDatabaseName(PhoneMatchKeyIndexName);
 
         // The real create-idempotency guarantee (E-43, E-46).
         //

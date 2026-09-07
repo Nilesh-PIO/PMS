@@ -52,6 +52,39 @@ public sealed class FakePatientRepository : IPatientRepository
         CancellationToken cancellationToken) =>
         Task.FromResult(_saved.FirstOrDefault(p => p.SubmissionId == submissionId));
 
+    /// <summary>
+    /// F-6. The same exact-equality pre-filter the EF implementation runs, in memory.
+    /// </summary>
+    /// <remarks>
+    /// Kept faithful to the production query in the two ways the service actually depends on: it
+    /// returns rows matching <em>either</em> key rather than both, and it does not filter out
+    /// inactive or already-merged patients. A fake that quietly hid those would let a test pass here
+    /// that the database would fail.
+    /// </remarks>
+    public Task<IReadOnlyList<Patient>> FindDuplicateCandidatesAsync(
+        string? phoneMatchKey,
+        DateOnly? dateOfBirth,
+        Guid? excludePatientId,
+        CancellationToken cancellationToken)
+    {
+        if (phoneMatchKey is null && dateOfBirth is null)
+        {
+            return Task.FromResult<IReadOnlyList<Patient>>([]);
+        }
+
+        var matches = _saved
+            .Where(p => excludePatientId is null || p.Id != excludePatientId)
+            .Where(p =>
+                (phoneMatchKey is not null
+                    && string.Equals(p.PhoneMatchKey, phoneMatchKey, StringComparison.Ordinal))
+                || (dateOfBirth is not null && p.DateOfBirth == dateOfBirth))
+            .OrderBy(p => p.RegisteredUtc)
+            .ThenBy(p => p.Id)
+            .ToList();
+
+        return Task.FromResult<IReadOnlyList<Patient>>(matches);
+    }
+
     public Task AddAsync(Patient patient, CancellationToken cancellationToken)
     {
         _pending.Add(patient);

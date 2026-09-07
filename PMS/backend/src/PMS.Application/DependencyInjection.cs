@@ -31,6 +31,13 @@ public static class DependencyInjection
         // keeping a second copy of that list (C-20).
         services.AddScoped<IPatientService, PatientService>();
 
+        // F-6. Note the direction of this dependency: PatientService depends on the duplicate
+        // service, and the duplicate service depends only on the repository and the clock. It has
+        // to be callable *without* going through registration, because the client asks it while the
+        // form is still being filled in - a warning that only arrives on submit is a warning that
+        // arrives after the physician has stopped thinking about who this patient is.
+        services.AddScoped<IPatientDuplicateService, PatientDuplicateService>();
+
         return services;
     }
 }

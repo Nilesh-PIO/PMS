@@ -5,8 +5,10 @@ import { PatientDataForm } from '../../shared/components/forms/PatientDataForm';
 import { TextField } from '../../shared/components/forms/TextField';
 import { useSubmitOnce } from '../../shared/hooks/useSubmitOnce';
 import { useSettingOptions } from '../clinic/useClinicSettings';
+import { DuplicateWarningDialog, duplicateCandidatesFrom } from './DuplicateWarningDialog';
+import { useDuplicateCheck } from './usePatientDuplicates';
 import { useCreatePatient } from './usePatients';
-import type { AgeMode, CreatePatientRequest } from './types/patient';
+import type { AgeMode, CreatePatientRequest, DuplicateCandidate } from './types/patient';
 
 /**
  * Patient registration (route `/patients/new`, planning-pms-verification.md, F-5 point 4;
@@ -27,6 +29,13 @@ import type { AgeMode, CreatePatientRequest } from './types/patient';
  * 4. *Save cannot fire twice* (E-43, E-46). `useSubmitOnce` disables the button and — more
  *    importantly — sends a submission token, because the button is not what stops a retried
  *    request.
+ *
+ * **F-6 adds a fifth: the same person is not registered twice** (REC-2, E-25). The check runs
+ * ahead of the physician as the name and phone are filled in, so the warning arrives while they are
+ * still thinking about who this patient is rather than after they have moved on. The server runs the
+ * same check again before it writes anything, and answers a duplicate with a 409 carrying the
+ * candidates — so this screen has two paths into the dialog and neither of them is the guarantee on
+ * its own. The advisory check can fail silently; the server's cannot be bypassed.
  */
 export function PatientForm() {
   const navigate = useNavigate();
@@ -46,10 +55,46 @@ export function PatientForm() {
   const [altContact, setAltContact] = useState('');
   const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
 
+  // The candidates currently being shown. Null means no dialog is open - distinct from an empty
+  // array, which would mean "a check ran and found nobody".
+  const [pendingDuplicates, setPendingDuplicates] = useState<DuplicateCandidate[] | null>(null);
+
   const fieldErrors = isProblemDetailsError(create.error) ? create.error.fieldErrors : {};
+
+  // The advisory check, running as the form is filled in (plan F-6 point 4: debounced 400 ms).
+  // Deliberately not awaited by submit: the server re-runs it, so a slow or failed check delays
+  // nothing and blocks nobody.
+  const duplicateProbe = {
+    fullName,
+    phone: primaryPhone,
+    dateOfBirth: ageMode === 'dateOfBirth' ? dateOfBirth : null,
+  };
+  const duplicates = useDuplicateCheck(duplicateProbe);
+  const earlyWarnings = (duplicates.data ?? []).filter((c) => c.isLikelyDuplicate);
 
   const willBeIncomplete =
     primaryPhone.trim() === '' || gender.trim() === '' || ageMode === 'unknown';
+
+  /**
+   * The form's fields as the API wants them.
+   *
+   * Built in one place because two things now send it — the ordinary submit and the confirmation
+   * from the duplicate dialog — and those two must send *identical* payloads. If they could drift,
+   * the record created after a confirmation would differ from the one the physician was warned
+   * about, which is a quiet way to save something nobody reviewed.
+   *
+   * Exactly one age shape leaves this form. The server enforces the same rule and a check
+   * constraint enforces it again; this is the layer that makes the rule obvious, not the layer that
+   * guarantees it.
+   */
+  const buildRequest = (): CreatePatientRequest => ({
+    fullName,
+    dateOfBirth: ageMode === 'dateOfBirth' ? dateOfBirth : null,
+    approxAgeYears: ageMode === 'approximate' ? Number(approxAgeYears) : null,
+    gender: gender.trim() === '' ? null : gender,
+    primaryPhone: primaryPhone.trim() === '' ? null : primaryPhone,
+    altContact: altContact.trim() === '' ? null : altContact,
+  });
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -76,34 +121,56 @@ export function PatientForm() {
       return;
     }
 
-    // Exactly one age shape leaves this form. The server enforces the same rule and a check
-    // constraint enforces it again; this is simply the layer that makes the rule obvious rather
-    // than the layer that guarantees it.
-    const request: CreatePatientRequest = {
-      fullName,
-      dateOfBirth: ageMode === 'dateOfBirth' ? dateOfBirth : null,
-      approxAgeYears: ageMode === 'approximate' ? Number(approxAgeYears) : null,
-      gender: gender.trim() === '' ? null : gender,
-      primaryPhone: primaryPhone.trim() === '' ? null : primaryPhone,
-      altContact: altContact.trim() === '' ? null : altContact,
-    };
+    await register(buildRequest(), false);
+  };
 
+  /**
+   * Sends the registration, and turns a duplicate 409 into the dialog rather than an error message.
+   *
+   * The submission token is *not* regenerated between the refused attempt and the confirmed one:
+   * both are the same intent to register one patient, and a new token would mean a retry after a
+   * timeout could register them twice (E-43, E-46).
+   */
+  const register = async (request: CreatePatientRequest, confirmDuplicate: boolean) => {
     await submitOnce.submit(async (submissionId) => {
       try {
-        const created = await create.mutateAsync({ ...request, submissionId });
+        const created = await create.mutateAsync({
+          request: { ...request, submissionId },
+          confirmDuplicate,
+        });
         // A fresh token, so the next registration on this screen is a new intent rather than a
         // replay that would be answered with the patient just created.
         submitOnce.reset();
+        setPendingDuplicates(null);
         navigate(`/patients/${created.id}`);
-      } catch {
-        // Rendered from `create.error` below. Nothing is cleared: every typed character stays on
-        // screen so the physician can correct one field rather than retype the form (E-47).
+      } catch (error) {
+        // F-6. A duplicate 409 is a question, not a failure, and it carries everything needed to
+        // answer it. Rendering it as a red error message would be both wrong and useless - the
+        // physician's next action is to look at the candidates, which are right here in the body.
+        const candidates = duplicateCandidatesFrom(error);
+        if (candidates) {
+          setPendingDuplicates(candidates);
+          return;
+        }
+
+        // Anything else is rendered from `create.error` below. Nothing is cleared: every typed
+        // character stays on screen so the physician can correct one field rather than retype the
+        // form (E-47).
       }
     });
   };
 
+  const handleConfirmDuplicate = async () => {
+    await register(buildRequest(), true);
+  };
+
+  // A duplicate 409 is excluded alongside the 400: it is answered by the dialog, and showing it as
+  // an error banner underneath would tell the physician something failed when nothing did.
   const formError =
-    create.isError && isProblemDetailsError(create.error) && create.error.status !== 400
+    create.isError &&
+    isProblemDetailsError(create.error) &&
+    create.error.status !== 400 &&
+    !duplicateCandidatesFrom(create.error)
       ? create.error.userMessage
       : null;
 
@@ -111,10 +178,33 @@ export function PatientForm() {
     <section className="patients-page">
       <h1>Register a patient</h1>
 
+      {pendingDuplicates ? (
+        <DuplicateWarningDialog
+          candidates={pendingDuplicates}
+          onConfirm={handleConfirmDuplicate}
+          onCancel={() => setPendingDuplicates(null)}
+          isSubmitting={submitOnce.isSubmitting}
+        />
+      ) : null}
+
       <PatientDataForm onSubmit={handleSubmit} noValidate className="patient-form">
         {formError ? (
           <p className="clinic-form__error" role="alert">
             {formError}
+          </p>
+        ) : null}
+
+        {/*
+          The early warning, shown while the form is still being filled in rather than waiting for
+          Save. Advisory only - it never disables anything, and the server refuses a duplicate
+          independently, so a failed check costs a warning rather than a registration.
+        */}
+        {pendingDuplicates === null && earlyWarnings.length > 0 ? (
+          <p className="patient-form__notice" role="status">
+            {earlyWarnings.length === 1
+              ? 'A patient already on file looks like this person. '
+              : `${earlyWarnings.length} patients already on file look like this person. `}
+            You will be shown their records before anything is saved.
           </p>
         ) : null}
 
