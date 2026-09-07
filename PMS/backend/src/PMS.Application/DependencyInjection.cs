@@ -26,6 +26,11 @@ public static class DependencyInjection
         // clinic's temperature unit through IClinicProfileService rather than re-deriving it.
         services.AddScoped<IClinicSettingsService, ClinicSettingsService>();
 
+        // F-5. Scoped: reaches the database through IPatientRepository, and asks
+        // IClinicSettingsService whether a submitted gender is one the clinic offers rather than
+        // keeping a second copy of that list (C-20).
+        services.AddScoped<IPatientService, PatientService>();
+
         return services;
     }
 }

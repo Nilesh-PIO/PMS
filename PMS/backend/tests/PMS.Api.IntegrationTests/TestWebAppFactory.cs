@@ -71,6 +71,9 @@ public class TestWebAppFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
             // F-4. Same reason, same branch.
             services.AddScoped<IClinicSettingsRepository, ClinicSettingsRepository>();
+
+            // F-5. Same reason, same branch.
+            services.AddScoped<IPatientRepository, PatientRepository>();
         });
     }
 

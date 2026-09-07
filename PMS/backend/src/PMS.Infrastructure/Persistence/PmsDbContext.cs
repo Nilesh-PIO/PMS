@@ -38,6 +38,13 @@ public class PmsDbContext : DbContext
     /// </summary>
     public DbSet<VitalRangeSetting> VitalRangeSettings => Set<VitalRangeSetting>();
 
+    /// <summary>
+    /// F-5. The people the clinic treats. No row is ever removed from this set - F-8 retires a
+    /// record with <c>PatientStatus.Inactive</c> and F-6 points a duplicate at its survivor, both
+    /// of which keep the history readable (E-33, E-26).
+    /// </summary>
+    public DbSet<Patient> Patients => Set<Patient>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
