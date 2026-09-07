@@ -473,3 +473,218 @@ body {
   color: var(--pms-muted);
   font-size: 0.8125rem;
 }
+
+/* --- F-7: patient search, picker rows, recent patients --------------------- */
+
+.patient-search {
+  position: relative;
+  flex: 1 1 22rem;
+  max-width: 30rem;
+}
+
+.patient-search__form {
+  display: flex;
+  align-items: center;
+}
+
+/* The label is for screen readers; the placeholder carries it visually, because the header has
+   no room for a second line of text. */
+.patient-search__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.patient-search__input {
+  width: 100%;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--pms-border);
+  border-radius: 4px;
+  font: inherit;
+  background: var(--pms-surface);
+}
+
+.patient-search__input:focus {
+  outline: 2px solid var(--pms-accent);
+  outline-offset: 1px;
+}
+
+.patient-search__panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  right: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 0.75rem;
+  background: var(--pms-surface);
+  border: 1px solid var(--pms-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(31 41 51 / 18%);
+}
+
+.patient-search__toggle,
+.patient-list__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--pms-muted);
+  margin-bottom: 0.5rem;
+}
+
+.patient-results__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+/* A superseded query dims the previous results rather than blanking them (keepPreviousData) -
+   the rows being read stay readable. */
+.patient-results--stale {
+  opacity: 0.6;
+}
+
+.patient-results__hint,
+.patient-results__note,
+.patient-results__register,
+.recent-patients__note {
+  margin: 0.5rem 0;
+  font-size: 0.85rem;
+  color: var(--pms-muted);
+}
+
+.patient-results__note {
+  padding: 0.5rem 0.6rem;
+  background: #fff8e6;
+  border-left: 3px solid #c9821a;
+  color: var(--pms-text);
+}
+
+.patient-results__error {
+  padding: 0.75rem;
+  border-left: 3px solid #b3261e;
+  background: #fdf3f2;
+}
+
+.patient-results__error p {
+  margin: 0 0 0.35rem;
+}
+
+.patient-results__error-note {
+  font-size: 0.85rem;
+  color: var(--pms-muted);
+}
+
+/* --- the picker row (E-28, RSK-12) --- */
+
+.picker-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: var(--pms-surface);
+  border: 1px solid var(--pms-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.picker-row:hover,
+.picker-row:focus-visible {
+  border-color: var(--pms-accent);
+  background: #f2f7fc;
+}
+
+.picker-row:focus-visible {
+  outline: 2px solid var(--pms-accent);
+  outline-offset: 1px;
+}
+
+.picker-row--static {
+  cursor: default;
+}
+
+.picker-row__primary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.picker-row__name {
+  font-weight: 600;
+}
+
+/* The disambiguating fields. Deliberately always visible and never truncated away - they are the
+   whole reason this row exists rather than a plain name. */
+.picker-row__secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.9rem;
+  font-size: 0.85rem;
+  color: var(--pms-muted);
+}
+
+.picker-row__badge {
+  padding: 0.05rem 0.4rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 3px;
+  background: #eef1f5;
+  color: var(--pms-muted);
+}
+
+.picker-row__badge--warn {
+  background: #fdece9;
+  color: #8c2016;
+}
+
+.picker-row__badge--guess {
+  background: #fff3d6;
+  color: #7a5209;
+}
+
+/* --- pages --- */
+
+.patient-list,
+.recent-patients {
+  max-width: 52rem;
+}
+
+.patient-list__header,
+.recent-patients__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.patient-list__search {
+  margin-bottom: 1rem;
+}
+
+.recent-patients__subtitle {
+  font-size: 1rem;
+  margin: 1rem 0 0.5rem;
+}
+
+.recent-patients__note kbd {
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--pms-border);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: var(--pms-surface);
+  font-size: 0.8rem;
+}

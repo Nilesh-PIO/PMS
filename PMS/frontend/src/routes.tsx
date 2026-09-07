@@ -4,7 +4,9 @@ import { ClinicProfilePage } from './features/clinic/ClinicProfilePage';
 import { ClinicSettingsPage } from './features/clinic/ClinicSettingsPage';
 import { VitalRangesPage } from './features/clinic/VitalRangesPage';
 import { PatientForm } from './features/patients/PatientForm';
+import { PatientList } from './features/patients/PatientList';
 import { PatientProfile } from './features/patients/PatientProfile';
+import { RecentPatients } from './features/patients/RecentPatients';
 import { FirstRunSetupPage } from './features/setup/FirstRunSetupPage';
 import { AppLayout } from './shared/components/AppLayout';
 import { PlaceholderPage } from './shared/components/PlaceholderPage';
@@ -51,8 +53,10 @@ export const routes: RouteObject[] = [
       </RequireAuth>
     ),
     children: [
-      { index: true, element: <PlaceholderPage title="Today" featureId="F-7 / F-9" /> },
-      { path: 'patients', element: <PlaceholderPage title="Patients" featureId="F-7" /> },
+      // F-7. The home screen is the recent-patients list; F-9 adds today's appointments above it.
+      { index: true, element: <RecentPatients /> },
+      // F-7. Reads its query from `?query=`, so a search survives a refresh and can be shared.
+      { path: 'patients', element: <PatientList /> },
       // F-5. `patients/new` is listed before `patients/:id` for readability only - React Router v6
       // ranks a static segment above a dynamic one regardless of declaration order, so "new" can
       // never be read as a patient id.

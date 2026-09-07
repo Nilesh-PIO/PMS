@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useLogout, useSession } from '../../features/auth/useSession';
+import { PatientSearch } from '../../features/patients/PatientSearch';
 import { ScreenLock } from './ScreenLock';
 
 interface NavItem {
@@ -65,6 +66,11 @@ export function AppLayout() {
               </NavLink>
             ))}
           </nav>
+
+          {/* F-7. Global, so "find this patient" costs one keystroke from anywhere - including
+              mid-consultation, which is where it is asked most (REC-16). Inside ScreenLock like
+              everything else, so patient names are covered when the screen locks. */}
+          <PatientSearch />
 
           <div className="app-layout__session">
             {session ? <span className="app-layout__user">{session.userName}</span> : null}

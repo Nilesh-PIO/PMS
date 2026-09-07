@@ -31,6 +31,11 @@ public static class DependencyInjection
         // keeping a second copy of that list (C-20).
         services.AddScoped<IPatientService, PatientService>();
 
+        // F-7. Scoped: reaches the database through the same IPatientRepository. Kept separate from
+        // IPatientService because finding a patient and registering one are different jobs with
+        // different collaborators - F-9's appointment picker will want this one and not the other.
+        services.AddScoped<IPatientSearchService, PatientSearchService>();
+
         return services;
     }
 }

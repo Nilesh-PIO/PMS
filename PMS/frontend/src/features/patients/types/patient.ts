@@ -17,6 +17,43 @@ export interface Patient {
   isProfileIncomplete: boolean;
 }
 
+/**
+ * One row in a picker — a search result or a recent-list entry (F-7, mirroring
+ * `PatientSummaryResponse`).
+ *
+ * **Every disambiguating field is required, and that is the point** (E-28, RSK-12). A row rendered
+ * from this type cannot be name-only unless a component deliberately discards fields, which is the
+ * structural version of "never show a name alone in a selection list".
+ */
+export interface PatientSummary {
+  id: string;
+  fullName: string;
+  /** Last four digits, or null when no phone was recorded. */
+  phoneTail: string | null;
+  /** Server-formatted, so screen and printed prescription can never disagree. */
+  ageDisplay: string;
+  gender: string | null;
+  /**
+   * ISO date of the most recent visit.
+   *
+   * **Always null until F-10 introduces `Visit`** — see `PatientSummaryResponse.LastVisitDate` on
+   * the server for the assumption behind it. `registeredOn` carries the date axis in the meantime,
+   * so a picker row always has a date to show.
+   */
+  lastVisitDate: string | null;
+  /** ISO date the record was created. */
+  registeredOn: string;
+  status: 'Active' | 'Inactive';
+  /** True when this record points at a survivor (F-6). Rendered as a warning, never hidden. */
+  isMerged: boolean;
+  isProfileIncomplete: boolean;
+  /** Why this row matched. `SimilarName` means it is a *guess* from the fuzzy fallback (E-30). */
+  matchKind: PatientMatchKind;
+}
+
+/** The values `PatientSummary.matchKind` can take. */
+export type PatientMatchKind = 'Name' | 'Phone' | 'SimilarName' | 'Recent';
+
 /** The full profile. */
 export interface PatientDetail extends Patient {
   normalizedName: string;

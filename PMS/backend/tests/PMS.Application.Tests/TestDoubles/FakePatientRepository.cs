@@ -1,10 +1,12 @@
 using PMS.Application.Abstractions;
+using PMS.Application.Services;
 using PMS.Domain.Entities;
+using PMS.Domain.Enums;
 
 namespace PMS.Application.Tests.TestDoubles;
 
 /// <summary>
-/// In-memory <see cref="IPatientRepository"/> for the F-5 service tests.
+/// In-memory <see cref="IPatientRepository"/> for the F-5 and F-7 service tests.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -95,5 +97,90 @@ public sealed class FakePatientRepository : IPatientRepository
         }
 
         return false;
+    }
+
+    // --- F-7 -------------------------------------------------------------------
+
+    /// <summary>How many times <see cref="GetNameKeysAsync"/> ran — the fuzzy fallback's tell.</summary>
+    /// <remarks>
+    /// Exposed so a test can assert the expensive path is <em>not</em> taken when the exact search
+    /// already found something. "The fallback only runs on an empty result" is a performance
+    /// promise in the plan, and a promise nothing checks is a promise that quietly stops holding.
+    /// </remarks>
+    public int NameKeyReadCount { get; private set; }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// <b>This runs the production search rules, not a re-implementation of them.</b> The
+    /// specification arrives carrying the same <c>PatientSearchRules</c> expression trees that EF
+    /// Core turns into SQL; here they are simply compiled and run against a list. That is what
+    /// makes a unit test of ranking meaningful — a hand-written LINQ-to-Objects copy of the rule
+    /// would only ever prove that the copy agrees with itself.
+    /// </para>
+    /// <para>
+    /// The sort chain after the rank is duplicated from <c>PatientRepository.SearchAsync</c>,
+    /// because that part genuinely does live in the repository. <c>PatientSearchEndpointTests</c>
+    /// asserts the real SQL ordering against a seeded set, so the two are checked against each
+    /// other rather than assumed equal.
+    /// </para>
+    /// </remarks>
+    public Task<IReadOnlyList<Patient>> SearchAsync(
+        PatientSearchSpecification specification,
+        CancellationToken cancellationToken)
+    {
+        var match = specification.Match.Compile();
+        var rank = specification.Rank.Compile();
+
+        IReadOnlyList<Patient> results = _saved
+            .Where(match)
+            .OrderBy(rank)
+            .ThenByDescending(p => p.RegisteredUtc)
+            .ThenBy(p => p.FullName, StringComparer.Ordinal)
+            .ThenBy(p => p.Id)
+            .Take(specification.Take)
+            .ToList();
+
+        return Task.FromResult(results);
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<Patient>> GetRecentAsync(int take, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<Patient> results = _saved
+            .Where(p => p.Status == PatientStatus.Active && p.MergedIntoPatientId is null)
+            .OrderByDescending(p => p.RegisteredUtc)
+            .ThenBy(p => p.FullName, StringComparer.Ordinal)
+            .ThenBy(p => p.Id)
+            .Take(take)
+            .ToList();
+
+        return Task.FromResult(results);
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<PatientNameKey>> GetNameKeysAsync(
+        bool includeInactive,
+        CancellationToken cancellationToken)
+    {
+        NameKeyReadCount++;
+
+        var selectable = PatientSearchRules.IsSelectable(includeInactive).Compile();
+
+        IReadOnlyList<PatientNameKey> results = _saved
+            .Where(selectable)
+            .Select(p => new PatientNameKey(p.Id, p.NormalizedName))
+            .ToList();
+
+        return Task.FromResult(results);
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<Patient>> GetByIdsAsync(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<Patient> results = _saved.Where(p => ids.Contains(p.Id)).ToList();
+        return Task.FromResult(results);
     }
 }

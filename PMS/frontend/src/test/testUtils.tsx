@@ -142,7 +142,18 @@ export function stubFetch(
     const url = typeof input === 'string' ? input : input.toString();
     calls.push({ url, init });
 
-    const match = Object.keys(routes).find((path) => url.endsWith(path));
+    // Matched on the full URL first, then on the path with any query string removed (F-7).
+    //
+    // Before the second pass existed, a key of '/patients/search' never matched
+    // '/api/patients/search?query=ravi', so the stub threw - and httpClient faithfully reported
+    // that as "could not reach the server", which made a missing stub look like a network bug.
+    // Trying the full URL first means a test can still key on a specific query string when it
+    // wants to answer two of them differently, and every query-string-free stub behaves exactly
+    // as it did before.
+    const match =
+      Object.keys(routes).find((path) => url.endsWith(path)) ??
+      Object.keys(routes).find((path) => pathOf(url).endsWith(path));
+
     if (!match) {
       throw new Error(`No stub for ${url}`);
     }
@@ -153,4 +164,10 @@ export function stubFetch(
 
   vi.stubGlobal('fetch', fetchMock);
   return { calls, fetchMock };
+}
+
+/** The path part of a URL that may be relative ('/api/x?y=1') or absolute. */
+function pathOf(url: string): string {
+  const queryStart = url.indexOf('?');
+  return queryStart === -1 ? url : url.slice(0, queryStart);
 }
