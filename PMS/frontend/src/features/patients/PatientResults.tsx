@@ -103,7 +103,10 @@ export function PatientResults({
       <ul className="patient-results__list">
         {results.map((patient) => (
           <li key={patient.id}>
-            <PatientPickerRow patient={patient} onSelect={onSelect} />
+            {/* Spread rather than field-by-field: PatientSummary's field names *are* the row's
+                props, so a field added to the DTO reaches the row without anyone remembering to
+                pass it on. */}
+            <PatientPickerRow {...patient} onSelect={onSelect} />
           </li>
         ))}
       </ul>

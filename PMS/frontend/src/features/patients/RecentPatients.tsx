@@ -82,7 +82,7 @@ export function RecentPatients() {
                 {/* The same picker row the search results use - so a patient chosen from here is
                     identified by exactly the same four facts (E-28). */}
                 <PatientPickerRow
-                  patient={patient}
+                  {...patient}
                   onSelect={(id) => navigate(`/patients/${id}`)}
                 />
               </li>

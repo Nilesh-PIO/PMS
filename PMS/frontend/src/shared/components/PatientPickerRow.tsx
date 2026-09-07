@@ -1,88 +1,156 @@
-import type { PatientSummary } from '../../features/patients/types/patient';
+import type { ReactNode } from 'react';
 
 /**
- * One patient in a selection list (planning-pms-verification.md, F-6 point 4 and F-7 point 4;
- * brainstorm E-28, RSK-12, REC-12).
+ * One patient, rendered the only way this application ever renders a patient in a list
+ * (planning-pms-verification.md, F-6 point 4 and F-7 point 4; brainstorm REC-12, RSK-12, E-28).
  *
- * **This component is the wrong-patient guard, expressed as UI.** RSK-12 — "wrong-patient selection
- * from a name-only picker" — is rated Critical, and E-28 states the rule: *never show a name alone
- * in a selection list*. So this is the only way a patient is ever rendered as a choice, anywhere in
- * the application, and it always renders four things:
+ * **Why this component exists at all.** RSK-12 is "wrong-patient selection from a name-only
+ * picker", and its impact is rated Critical: one clinic has several Ravi Kumars, and a list showing
+ * only names offers nothing to tell them apart before a prescription is written against the wrong
+ * history. REC-12's answer is that *no* picker anywhere shows a name alone — always name plus phone
+ * tail plus age/DOB plus a date.
  *
- * - the **name**, as entered;
- * - the **phone tail**, or an explicit "no phone" — the strongest everyday disambiguator between
- *   two people with one name;
- * - the **age**, server-formatted so it reads the same here as on the prescription;
- * - a **date** — last visit once F-10 exists, registration date until then — because two patients
- *   can share a name, an age *and* have no phone between them, and something still has to tell
- *   them apart.
+ * A rule like that, left as a convention, survives exactly as long as the next person who builds a
+ * list remembers it. Making it a component means F-6's duplicate candidates, F-7's search results
+ * and F-9's appointment picker cannot render a patient row without those fields, because there is
+ * nowhere to put a row that does not have them.
  *
- * "No phone recorded" is rendered rather than an empty cell on purpose: a blank space looks like a
- * rendering bug, and the physician cannot tell whether the field is missing or the row is broken.
+ * **Nothing missing is ever blank.** A patient with no phone renders "No phone recorded" rather
+ * than an empty cell. A blank is something the eye slides past — and it is indistinguishable from a
+ * rendering bug; a stated absence is something the reader registers, and "this one has no phone on
+ * file and that one does" is itself disambiguating.
  *
- * **Nothing here selects itself.** The row is a button the physician presses. There is no
- * auto-focus, no "if there is exactly one result, activate it" behaviour, and adding one would
- * reopen the exact risk this component exists to close.
+ * **Nothing here selects itself.** With `onSelect` the row is a button the physician presses;
+ * without it the row is inert. There is no auto-focus and no "if there is exactly one result,
+ * activate it" behaviour, and adding one would reopen the exact risk this component closes.
  *
- * **COORDINATION NOTE (F-6):** plan F-6 point 4 names this same path,
- * `shared/components/PatientPickerRow.tsx`, for the duplicate-candidate list. F-6 is being built in
- * parallel on its own branch and will create this file too, so an add/add conflict here at merge
- * time is expected and is the correct outcome — both features are meant to render candidates
- * identically. Resolve by keeping one component, not by letting each feature have its own.
+ * **MERGE NOTE (F-6 + F-7).** Both features independently created this file at the path the plan
+ * names for both of them, and both left a note saying whichever merged second should end up with
+ * one component rather than two. This is that one component: F-6's `<dl>` fact list, explicit
+ * date-of-birth row and stated absences, plus F-7's selectable-button mode, badge row and
+ * accessible label. Props are flat rather than a patient object on purpose — `shared/` must not
+ * import a `features/` type, and the two features' DTOs (`DuplicateCandidate` and
+ * `PatientSummary`) genuinely differ in what they carry.
  */
 export interface PatientPickerRowProps {
-  patient: PatientSummary;
-  /** Called with the patient's id when the row is chosen. */
+  id: string;
+  fullName: string;
+  /** Last four digits, or null when no phone was recorded. */
+  phoneTail: string | null;
+  /** Server-formatted age string — never re-derived on the client. */
+  ageDisplay: string;
+  gender?: string | null;
+  /**
+   * ISO date of birth, or null when none is on file.
+   *
+   * `undefined` and `null` mean different things here, deliberately. `null` is "this patient has no
+   * date of birth recorded" and renders as such; `undefined` is "this row's DTO does not carry a
+   * date of birth at all" (F-7's `PatientSummary`) and omits the fact entirely, rather than
+   * asserting an absence the caller never claimed.
+   */
+  dateOfBirth?: string | null;
+  /** ISO date of the most recent visit, or null when there are none (always null before F-10). */
+  lastVisitDate: string | null;
+  /** ISO date the record was created. Carries the date axis until F-10 introduces `Visit`. */
+  registeredOn?: string | null;
+  status?: 'Active' | 'Inactive';
+  /** True when this record points at a survivor (F-6). Rendered as a warning, never hidden. */
+  isMerged?: boolean;
+  isProfileIncomplete?: boolean;
+  /** `SimilarName` means this row is a *guess* from F-7's fuzzy fallback (E-30). */
+  matchKind?: 'Name' | 'Phone' | 'SimilarName' | 'Recent';
+  /**
+   * Given: the row is a button. Omitted: the row is inert — which is what F-6's dialog wants, since
+   * merge tooling is Phase 2 and a row that looked selectable but only navigated would be worse
+   * than no action at all.
+   */
   onSelect?: (id: string) => void;
-  /** Rendered instead of a button when the row is informational rather than selectable. */
-  as?: 'button' | 'div';
-  /** Extra detail rendered after the standard fields, e.g. a duplicate-match reason (F-6). */
-  children?: React.ReactNode;
+  /** Rendered after the identifying fields — a match reason, a merged-away note. */
+  children?: ReactNode;
 }
 
-export function PatientPickerRow({
-  patient,
-  onSelect,
-  as = 'button',
-  children,
-}: PatientPickerRowProps) {
-  const isGuess = patient.matchKind === 'SimilarName';
+export function PatientPickerRow(props: PatientPickerRowProps) {
+  const {
+    id,
+    fullName,
+    phoneTail,
+    ageDisplay,
+    gender,
+    dateOfBirth,
+    status,
+    isMerged,
+    isProfileIncomplete,
+    matchKind,
+    onSelect,
+    children,
+  } = props;
 
   const content = (
     <>
-      <span className="picker-row__primary">
-        <span className="picker-row__name">{patient.fullName}</span>
-        {patient.status === 'Inactive' ? (
-          <span className="picker-row__badge picker-row__badge--warn">Inactive</span>
+      <p className="patient-picker-row__name">
+        {fullName}
+        {status === 'Inactive' ? (
+          <span className="patient-picker-row__badge patient-picker-row__badge--warn">
+            Inactive
+          </span>
         ) : null}
-        {patient.isMerged ? (
-          <span className="picker-row__badge picker-row__badge--warn">Merged</span>
+        {isMerged ? (
+          <span className="patient-picker-row__badge patient-picker-row__badge--warn">Merged</span>
         ) : null}
-        {isGuess ? (
-          <span className="picker-row__badge picker-row__badge--guess">Similar name</span>
+        {matchKind === 'SimilarName' ? (
+          <span className="patient-picker-row__badge patient-picker-row__badge--guess">
+            Similar name
+          </span>
         ) : null}
-        {patient.isProfileIncomplete ? (
-          <span className="picker-row__badge">Profile incomplete</span>
+        {isProfileIncomplete ? (
+          <span className="patient-picker-row__badge">Profile incomplete</span>
         ) : null}
-      </span>
+      </p>
 
-      <span className="picker-row__secondary">
+      <dl className="patient-picker-row__facts">
         {/* Every one of these is present on every row - see the component docs. */}
-        <span className="picker-row__field">
-          {patient.phoneTail ? `Phone ...${patient.phoneTail}` : 'No phone recorded'}
-        </span>
-        <span className="picker-row__field">{patient.ageDisplay}</span>
-        {patient.gender ? <span className="picker-row__field">{patient.gender}</span> : null}
-        <span className="picker-row__field">{describeLastSeen(patient)}</span>
-      </span>
+        <div className="patient-picker-row__fact">
+          <dt>Phone</dt>
+          <dd>{phoneTail ? `…${phoneTail}` : 'No phone recorded'}</dd>
+        </div>
+
+        <div className="patient-picker-row__fact">
+          <dt>Age</dt>
+          <dd>{ageDisplay}</dd>
+        </div>
+
+        {gender ? (
+          <div className="patient-picker-row__fact">
+            <dt>Gender</dt>
+            <dd>{gender}</dd>
+          </div>
+        ) : null}
+
+        {dateOfBirth !== undefined ? (
+          <div className="patient-picker-row__fact">
+            <dt>Date of birth</dt>
+            <dd>{dateOfBirth ? formatDate(dateOfBirth) : 'Not recorded'}</dd>
+          </div>
+        ) : null}
+
+        <div className="patient-picker-row__fact">
+          {/*
+            The label changes with the meaning, so "Registered 7 Sep 2026" is never misread as a
+            visit that did not happen. The day LastVisitDate starts arriving from F-10, the label
+            becomes "Last visit" on its own.
+          */}
+          <dt>{dateLabel(props)}</dt>
+          <dd>{dateValue(props)}</dd>
+        </div>
+      </dl>
 
       {children}
     </>
   );
 
-  if (as === 'div' || !onSelect) {
+  if (!onSelect) {
     return (
-      <div className="picker-row picker-row--static" data-testid="patient-picker-row">
+      <div className="patient-picker-row" data-testid="patient-picker-row">
         {content}
       </div>
     );
@@ -91,70 +159,85 @@ export function PatientPickerRow({
   return (
     <button
       type="button"
-      className="picker-row"
+      className="patient-picker-row patient-picker-row--selectable"
       data-testid="patient-picker-row"
-      onClick={() => onSelect(patient.id)}
+      onClick={() => onSelect(id)}
       // The full name is already the visible text; the accessible name adds the disambiguators so a
-      // screen-reader user hears the same four facts a sighted user reads, rather than a list of
+      // screen-reader user hears the same facts a sighted user reads, rather than a list of
       // identical "Ravi Kumar" buttons.
-      aria-label={accessibleLabel(patient)}
+      aria-label={accessibleLabel(props)}
     >
       {content}
     </button>
   );
 }
 
-/**
- * The date column.
- *
- * Prefers the last visit, which is what a physician actually wants to know, and falls back to the
- * registration date while `lastVisitDate` is null — which it always is until F-10 introduces
- * `Visit`. The label changes with the meaning, so "Registered 7 Sep 2026" is never misread as a
- * visit that did not happen.
- */
-function describeLastSeen(patient: PatientSummary): string {
-  if (patient.lastVisitDate) {
-    return `Last visit ${formatDate(patient.lastVisitDate)}`;
+/** "Last visit" once there is one, "Registered" while the row is falling back to its creation date. */
+function dateLabel({ lastVisitDate, registeredOn }: PatientPickerRowProps): string {
+  if (!lastVisitDate && registeredOn) {
+    return 'Registered';
   }
-  return `Registered ${formatDate(patient.registeredOn)}`;
+  return 'Last visit';
+}
+
+function dateValue({ lastVisitDate, registeredOn }: PatientPickerRowProps): string {
+  if (lastVisitDate) {
+    return formatDate(lastVisitDate);
+  }
+  if (registeredOn) {
+    return formatDate(registeredOn);
+  }
+  return 'No visits recorded';
 }
 
 /**
- * Formats an ISO date for display.
+ * Renders an ISO date.
  *
- * Day-month-year with a written month, because a purely numeric date is read differently on either
- * side of an ocean and this one sits next to a clinical record.
+ * Only ever applied to a *date*, never to an age. Ages arrive pre-formatted from the server
+ * (`ageDisplay`) precisely so the screen and F-14's printed prescription cannot disagree about
+ * them — re-deriving one here would reintroduce the divergence that decision exists to prevent.
+ *
+ * Day-month-year with a written month, fixed to `en-GB`: a purely numeric date is read differently
+ * on either side of an ocean, and this one sits next to a clinical record. Fixing the locale also
+ * keeps the rendering identical between a physician's browser and a test runner, so a date
+ * assertion means the same thing in both.
  */
 function formatDate(isoDate: string): string {
   const parsed = new Date(isoDate);
+
   if (Number.isNaN(parsed.getTime())) {
-    // Show what the server sent rather than "Invalid Date". A visible oddity is debuggable; a
-    // swallowed one is not.
+    // Show what the server sent rather than "Invalid Date". An unexpected value is still
+    // information; a placeholder is not.
     return isoDate;
   }
+
   return parsed.toLocaleDateString('en-GB', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    timeZone: 'UTC',
   });
 }
 
-function accessibleLabel(patient: PatientSummary): string {
+function accessibleLabel(props: PatientPickerRowProps): string {
   const parts = [
-    patient.fullName,
-    patient.phoneTail ? `phone ending ${patient.phoneTail}` : 'no phone recorded',
-    patient.ageDisplay,
-    describeLastSeen(patient),
+    props.fullName,
+    props.phoneTail ? `phone ending ${props.phoneTail}` : 'no phone recorded',
+    props.ageDisplay,
+    `${dateLabel(props).toLowerCase()} ${dateValue(props)}`,
   ];
 
-  if (patient.status === 'Inactive') {
+  if (props.status === 'Inactive') {
     parts.push('inactive record');
   }
-  if (patient.isMerged) {
+  if (props.isMerged) {
     parts.push('merged into another record');
   }
-  if (patient.matchKind === 'SimilarName') {
+  if (props.matchKind === 'SimilarName') {
     parts.push('similar name, not an exact match');
+  }
+  if (props.isProfileIncomplete) {
+    parts.push('profile incomplete');
   }
 
   return parts.join(', ');

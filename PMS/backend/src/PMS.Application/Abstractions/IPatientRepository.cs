@@ -66,6 +66,36 @@ public interface IPatientRepository
     /// </remarks>
     Task<Patient?> GetBySubmissionIdAsync(Guid submissionId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// F-6. Every patient who shares <paramref name="phoneMatchKey"/> or
+    /// <paramref name="dateOfBirth"/>, excluding <paramref name="excludePatientId"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the exact-equality half of the identity rule, and it is a complete pre-filter.</b>
+    /// F-6's rule is <c>name similarity ≥ threshold AND (same phone OR same date of birth)</c>, so
+    /// no candidate can ever be flagged without satisfying one of the two equality tests this method
+    /// runs. That is what lets the expensive half — fuzzy name comparison, which SQL Server cannot
+    /// express without a CLR function — run in memory over a handful of rows instead of over every
+    /// patient in the clinic.
+    /// </para>
+    /// <para>
+    /// Returns an empty list when both arguments are null: a registration with neither a phone nor a
+    /// date of birth cannot satisfy the rule, so asking the database is pointless rather than merely
+    /// slow.
+    /// </para>
+    /// <para>
+    /// Inactive and already-merged patients <em>are</em> returned. A retired record is exactly the
+    /// one a returning patient is about to be re-registered against (E-25), and hiding half of a
+    /// duplicate cluster from the only person who can interpret it is not a safety feature.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<Patient>> FindDuplicateCandidatesAsync(
+        string? phoneMatchKey,
+        DateOnly? dateOfBirth,
+        Guid? excludePatientId,
+        CancellationToken cancellationToken);
+
     /// <summary>Stages a new patient for insert.</summary>
     Task AddAsync(Patient patient, CancellationToken cancellationToken);
 

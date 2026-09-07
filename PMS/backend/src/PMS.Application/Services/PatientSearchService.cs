@@ -148,8 +148,8 @@ public sealed class PatientSearchService : IPatientSearchService
         var keys = await _patients.GetNameKeysAsync(includeInactive, cancellationToken);
 
         var scored = keys
-            .Select(k => (k.Id, Score: PatientNameSimilarity.Score(normalizedQuery, k.NormalizedName)))
-            .Where(x => x.Score >= PatientNameSimilarity.SearchFallbackThreshold)
+            .Select(k => (k.Id, Score: NameSimilarity.Score(normalizedQuery, k.NormalizedName)))
+            .Where(x => x.Score >= NameSimilarity.SearchFallbackThreshold)
             .OrderByDescending(x => x.Score)
             // Id as the final tie-break so two equally-similar names come back in the same order
             // every time. A picker that reshuffles between identical queries is a picker the

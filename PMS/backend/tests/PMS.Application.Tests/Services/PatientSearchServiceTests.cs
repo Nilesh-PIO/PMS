@@ -512,21 +512,21 @@ public class PatientSearchServiceTests
     public void The_fallback_threshold_is_pinned_at_the_documented_value()
     {
         // ASSUMPTION under C-22, deliberately looser than F-6's 0.85 duplicate-warning threshold -
-        // the reasoning is in PatientNameSimilarity. Pinned so a change is a deliberate act.
-        PatientNameSimilarity.SearchFallbackThreshold.Should().Be(0.7);
+        // the reasoning is in NameSimilarity. Pinned so a change is a deliberate act.
+        NameSimilarity.SearchFallbackThreshold.Should().Be(0.7);
 
-        PatientNameSimilarity.Score("ravi kumar", "ravi kumr").Should().BeGreaterThan(0.7);
-        PatientNameSimilarity.Score("sunita devi", "suneeta devi").Should().BeGreaterThan(0.7);
-        PatientNameSimilarity.Score("ravi", "kavita sharma").Should().BeLessThan(0.7);
+        NameSimilarity.Score("ravi kumar", "ravi kumr").Should().BeGreaterThan(0.7);
+        NameSimilarity.Score("sunita devi", "suneeta devi").Should().BeGreaterThan(0.7);
+        NameSimilarity.Score("ravi", "kavita sharma").Should().BeLessThan(0.7);
     }
 
     [Fact]
     public void Similarity_scores_an_identical_name_as_one_and_an_empty_name_as_zero()
     {
-        PatientNameSimilarity.Score("ravi kumar", "ravi kumar").Should().Be(1.0);
-        PatientNameSimilarity.Score("ravi kumar", "").Should().Be(0);
-        PatientNameSimilarity.Score("", "ravi kumar").Should().Be(0);
-        PatientNameSimilarity.Score(null, "ravi kumar").Should().Be(0);
+        NameSimilarity.Score("ravi kumar", "ravi kumar").Should().Be(1.0);
+        NameSimilarity.Score("ravi kumar", "").Should().Be(0);
+        NameSimilarity.Score("", "ravi kumar").Should().Be(0);
+        NameSimilarity.Score(null, "ravi kumar").Should().Be(0);
     }
 
     [Fact]
@@ -534,7 +534,7 @@ public class PatientSearchServiceTests
     {
         // Whole-string similarity between "kumr" and "ravi kumar" is well under the threshold; the
         // per-word pass is what makes a partially-remembered name findable.
-        PatientNameSimilarity.Score("kumr", "ravi kumar").Should().BeGreaterThan(0.7);
+        NameSimilarity.Score("kumr", "ravi kumar").Should().BeGreaterThan(0.7);
     }
 
     // --- recent patients (E-2, BRD L159) ------------------------------------

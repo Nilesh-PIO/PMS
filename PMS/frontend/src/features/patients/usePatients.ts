@@ -41,7 +41,17 @@ export function useCreatePatient() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (request: CreatePatientRequest) => patientsApi.createPatient(request),
+    // F-6 widened the variable from a bare request to a request plus `confirmDuplicate`. A second
+    // hook for the confirmed path was the alternative and was rejected: two mutations would each
+    // hold their own `isPending` and their own error, and the screen would have to keep them in
+    // step - which is how a form ends up showing a stale error beside a successful save.
+    mutationFn: ({
+      request,
+      confirmDuplicate = false,
+    }: {
+      request: CreatePatientRequest;
+      confirmDuplicate?: boolean;
+    }) => patientsApi.createPatient(request, confirmDuplicate),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: patientQueryKey(created.id) });
     },
