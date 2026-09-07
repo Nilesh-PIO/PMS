@@ -26,6 +26,17 @@ public sealed class ProblemDetailsMiddleware
     /// <summary>Extension key carrying the accepted maximum upload size on a 413.</summary>
     public const string LimitBytesExtension = "limitBytes";
 
+    /// <summary>
+    /// F-6. Extension key carrying the duplicate candidates on the registration 409.
+    /// </summary>
+    /// <remarks>
+    /// The candidates travel <em>in the error body</em> rather than needing a second round trip,
+    /// because this 409 is a question - "is this one of these people?" - and a question whose
+    /// options have to be fetched separately is a question that can fail halfway through being
+    /// asked. One response carries both the refusal and everything needed to answer it.
+    /// </remarks>
+    public const string DuplicateCandidatesExtension = "candidates";
+
     private const string ContentType = "application/problem+json";
 
     private readonly RequestDelegate _next;
@@ -124,6 +135,15 @@ public sealed class ProblemDetailsMiddleware
                     Instance = context.Request.Path,
                 };
                 ruleProblem.Extensions[RuleTypeExtension] = rule.RuleType;
+
+                // F-6. The one domain rule in this application whose refusal is meant to be
+                // overridden, so the response has to carry what the physician needs in order to
+                // decide - not just that something matched, but who.
+                if (rule is DuplicatePatientException duplicate)
+                {
+                    ruleProblem.Extensions[DuplicateCandidatesExtension] = duplicate.Candidates;
+                }
+
                 return ruleProblem;
 
             case DbUpdateConcurrencyException:

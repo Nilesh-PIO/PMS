@@ -85,10 +85,21 @@ public static class PatientNormalizer
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>"+91 98765-43210"</c>, <c>"098765 43210"</c> and <c>"9876543210"</c> are one number to a
-    /// physician and three strings to a database. This collapses the formatting the clinic actually
-    /// uses instead of rejecting it — the brainstorm is explicit that the fix is to index a
+    /// This removes <em>punctuation and spacing</em>. <c>"+91 98765-43210"</c>,
+    /// <c>"+919876543210"</c> and <c>"91 98765 43210"</c> all land on <c>"919876543210"</c>, which
+    /// is the point: the brainstorm is explicit that the fix for format variation is to index a
     /// normalized form, <em>not</em> to police the input.
+    /// </para>
+    /// <para>
+    /// <b>What it deliberately does not do — and this paragraph is a correction.</b> An earlier
+    /// version of this comment claimed <c>"+91 98765-43210"</c>, <c>"098765 43210"</c> and
+    /// <c>"9876543210"</c> were collapsed together. They are not, and never were: digits-only
+    /// normalization turns them into <c>"919876543210"</c>, <c>"09876543210"</c> and
+    /// <c>"9876543210"</c> — three keys for one number, because a country code and a trunk zero are
+    /// digits too. Making those three <em>match</em> is a matching decision rather than a
+    /// normalization one, and it is F-6's: see <see cref="PhoneMatchKey"/>. This method's output
+    /// stays the faithful digit sequence, so the stored column never discards information a future
+    /// revision of the matching rule might want back.
     /// </para>
     /// <para>
     /// <b>Returns null rather than an empty string</b> when nothing digit-like is present. That
@@ -142,5 +153,96 @@ public static class PatientNormalizer
         }
 
         return digits.Length <= 4 ? digits : digits[^4..];
+    }
+
+    // --- F-6: the phone matching key (Q-13) ---------------------------------
+
+    /// <summary>
+    /// The most significant digits a phone number can be matched on — at most
+    /// <see cref="PhoneMatchDigits"/> of them, with one leading trunk zero removed first.
+    /// </summary>
+    public const int PhoneMatchDigits = 10;
+
+    /// <summary>
+    /// Below this many digits a number carries too little identity to match on, and produces no
+    /// key at all.
+    /// </summary>
+    /// <remarks>
+    /// A three- or four-digit extension is a real thing to record and a terrible thing to match on:
+    /// every patient reachable on "extension 204" would be offered as a duplicate of every other.
+    /// Six is the floor at which a number is plausibly a whole number rather than a fragment.
+    /// </remarks>
+    public const int MinimumPhoneMatchDigits = 6;
+
+    /// <summary>
+    /// The key two phone numbers are compared on for duplicate detection (F-6, Q-13), or null when
+    /// the number is absent or too short to identify anyone.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ASSUMPTION (plan F-6 point 1, Q-13) — this is the open decision F-6 had to settle, and it
+    /// needs the plan owner's confirmation.</b> The plan's identity rule is "same
+    /// <c>NormalizedPhone</c>", but <see cref="NormalizePhone"/> is digits-only, so
+    /// <c>"+91 98765 43210"</c> stores as <c>919876543210</c> while <c>"098765 43210"</c> stores as
+    /// <c>09876543210</c>. Under literal string equality those are two different people. They are
+    /// obviously one person, and a duplicate check that misses them misses the single most likely
+    /// way one patient gets registered twice — the same number typed once with a country code and
+    /// once with a trunk zero.
+    /// </para>
+    /// <para>
+    /// So "same phone" is defined here as <b>equal on the last
+    /// <see cref="PhoneMatchDigits"/> significant digits</b>, derived in two steps:
+    /// </para>
+    /// <list type="number">
+    ///   <item><description><b>Drop one leading zero.</b> A domestic trunk prefix is dialling
+    ///   syntax, not part of the number. Only one is dropped — <c>"00"</c>-style international
+    ///   prefixes are handled by step 2 rather than by stripping zeros until something looks
+    ///   right.</description></item>
+    ///   <item><description><b>Keep the last ten digits.</b> That discards a country code of any
+    ///   length without this code having to carry a table of them, and it is what finally makes
+    ///   <c>919876543210</c>, <c>09876543210</c> and <c>9876543210</c> one key.</description></item>
+    /// </list>
+    /// <para>
+    /// <b>The cost of this choice, stated rather than hidden:</b> two numbers that agree in their
+    /// last ten digits but belong to different countries would match. In a single-physician local
+    /// clinic that is close to impossible, and the consequence if it ever happens is bounded — the
+    /// phone key is <em>never</em> sufficient on its own. F-6's rule requires a name similarity of
+    /// at least <see cref="NameSimilarity.DefaultThreshold"/> as well, and the result only ever
+    /// raises a dismissible warning (REC-2: warn, never block). The opposite error — failing to
+    /// match, and splitting one patient's history across two records — is rated Critical (E-25) and
+    /// is not recoverable by clicking anything.
+    /// </para>
+    /// <para>
+    /// Kept separate from <see cref="NormalizePhone"/> on purpose: the stored column keeps every
+    /// digit the physician typed, and only this derived key is lossy. If the owner's answer to Q-13
+    /// differs — scope cross-country matching out, or use a different digit count — this method and
+    /// the matching backfill in <c>AddPatientDuplicateIndexes</c> are the only two places that
+    /// change.
+    /// </para>
+    /// </remarks>
+    public static string? PhoneMatchKey(string? phone)
+    {
+        var digits = NormalizePhone(phone);
+
+        if (digits is null)
+        {
+            return null;
+        }
+
+        // Step 1: one trunk zero, and only one.
+        if (digits.Length > 1 && digits[0] == '0')
+        {
+            digits = digits[1..];
+        }
+
+        // Step 2: the country code, whatever length it is, falls off the front.
+        if (digits.Length > PhoneMatchDigits)
+        {
+            digits = digits[^PhoneMatchDigits..];
+        }
+
+        // Too short to be an identity signal. Null rather than a short key, so these numbers are
+        // absent from matching rather than all matching each other.
+        return digits.Length >= MinimumPhoneMatchDigits ? digits : null;
     }
 }

@@ -69,21 +69,25 @@ public sealed class PatientService : IPatientService
 
     private readonly IPatientRepository _patients;
     private readonly IClinicSettingsService _settings;
+    private readonly IPatientDuplicateService _duplicates;
     private readonly IClock _clock;
 
     public PatientService(
         IPatientRepository patients,
         IClinicSettingsService settings,
+        IPatientDuplicateService duplicates,
         IClock clock)
     {
         _patients = patients;
         _settings = settings;
+        _duplicates = duplicates;
         _clock = clock;
     }
 
     /// <inheritdoc />
     public async Task<PatientResponse> CreateAsync(
         CreatePatientRequest request,
+        bool confirmDuplicate,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -105,6 +109,35 @@ public sealed class PatientService : IPatientService
 
         var validated = await ValidateAsync(request, today, cancellationToken);
 
+        // F-6, and the ordering here is the acceptance criterion, not an implementation detail.
+        //
+        // The check runs *after* validation and *before* the insert. After validation, because
+        // warning about a duplicate on a form that is going to be rejected anyway wastes the
+        // physician's attention on the wrong problem. Before the insert, because plan F-6
+        // acceptance criterion 1 requires the 409 "before any row is written" - a check that fired
+        // afterwards would be a duplicate report rather than a duplicate check, and the split
+        // history would already exist by the time anyone read it.
+        if (!confirmDuplicate)
+        {
+            var candidates = await _duplicates.FindCandidatesAsync(
+                new DuplicateCheckRequest
+                {
+                    FullName = validated.FullName,
+                    Phone = validated.PrimaryPhone,
+                    DateOfBirth = validated.DateOfBirth,
+                },
+                cancellationToken);
+
+            // Only a *likely* duplicate stops a registration. The check also returns household
+            // context - other patients reachable on the same phone whose names are nothing alike
+            // (E-27) - and interrupting a registration for those would train the physician to click
+            // through the warning, which is the failure that makes the whole feature worthless.
+            if (candidates.Any(c => c.IsLikelyDuplicate))
+            {
+                throw new DuplicatePatientException(candidates);
+            }
+        }
+
         var patient = new Patient
         {
             Id = Guid.NewGuid(),
@@ -116,6 +149,11 @@ public sealed class PatientService : IPatientService
             Gender = validated.Gender,
             PrimaryPhone = validated.PrimaryPhone,
             NormalizedPhone = PatientNormalizer.NormalizePhone(validated.PrimaryPhone),
+            // F-6's matching key, derived on the same save as the column it comes from. Deriving it
+            // here rather than in the duplicate service is what keeps it in step with what is
+            // stored: a key computed at query time would silently stop matching rows written
+            // before the rule last changed.
+            PhoneMatchKey = PatientNormalizer.PhoneMatchKey(validated.PrimaryPhone),
             AltContact = validated.AltContact,
             RegisteredUtc = _clock.UtcNow,
             Status = PatientStatus.Active,
@@ -390,57 +428,19 @@ public sealed class PatientService : IPatientService
     // --- projection ---------------------------------------------------------
 
     /// <summary>
-    /// What is missing from a profile, named rather than counted (E-8, E-20).
+    /// What is missing from a profile (E-8, E-20). Delegates to <see cref="PatientProjection"/>.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// <b>ASSUMPTION (plan F-5 point 1, Q-7 / Q-16).</b> The plan states that a patient saved
-    /// without a phone is "flagged incomplete" but does not enumerate the full set of fields that
-    /// make a profile complete. Taken here as the three that later features actually depend on:
-    /// <b>phone</b> (F-7 searches it and the clinic phones people with it), <b>age</b> (F-11 and
-    /// F-14 need it for any dosing judgement) and <b>gender</b> (F-4 exists to make it recordable).
-    /// </para>
-    /// <para>
-    /// The alternate contact is deliberately <em>not</em> in the set — it is genuinely optional
-    /// extra, and including it would leave most well-filled profiles permanently flagged, which is
-    /// how a warning becomes wallpaper.
-    /// </para>
-    /// <para>
-    /// Nothing branches on this flag: it is displayed, never enforced. If the physician's answer to
-    /// Q-7 differs, this list is the only thing that changes.
-    /// </para>
+    /// Moved out of this class at F-6, when <c>mark-merged</c> became a second producer of a
+    /// <see cref="PatientResponse"/>. The assumption behind the field list, and the reasoning for
+    /// it, moved with it — one definition, so two screens cannot disagree about whether a profile
+    /// is complete.
     /// </remarks>
-    private static IReadOnlyList<string> MissingFields(Patient patient)
-    {
-        var missing = new List<string>();
-
-        if (string.IsNullOrWhiteSpace(patient.PrimaryPhone))
-        {
-            missing.Add("phone");
-        }
-
-        if (patient.DateOfBirth is null && patient.ApproxAgeYears is null)
-        {
-            missing.Add("age");
-        }
-
-        if (string.IsNullOrWhiteSpace(patient.Gender))
-        {
-            missing.Add("gender");
-        }
-
-        return missing;
-    }
+    private static IReadOnlyList<string> MissingFields(Patient patient) =>
+        PatientProjection.MissingFields(patient);
 
     private static PatientResponse ToSummary(Patient patient, DateOnly today) =>
-        new(
-            patient.Id,
-            patient.FullName,
-            PatientNormalizer.PhoneTail(patient.PrimaryPhone),
-            PatientAgeFormatter.Format(patient, today),
-            patient.Gender,
-            patient.Status.ToString(),
-            MissingFields(patient).Count > 0);
+        PatientProjection.ToSummary(patient, today);
 
     /// <summary>
     /// Trims and collapses internal whitespace on a value that will be <em>stored and displayed</em>

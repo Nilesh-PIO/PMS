@@ -1,6 +1,7 @@
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using PMS.Application.Abstractions;
+using PMS.Application.Services;
 using PMS.Domain.Entities;
 using PMS.Infrastructure.Persistence.Configurations;
 
@@ -39,6 +40,66 @@ public sealed class PatientRepository : IPatientRepository
         Guid submissionId,
         CancellationToken cancellationToken) =>
         _db.Patients.FirstOrDefaultAsync(p => p.SubmissionId == submissionId, cancellationToken);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// <b>Three query shapes rather than one predicate with null guards inside it.</b> A single
+    /// <c>Where(p =&gt; (key != null &amp;&amp; p.PhoneMatchKey == key) || (dob != null &amp;&amp;
+    /// p.DateOfBirth == dob))</c> reads more neatly and translates to SQL that carries both
+    /// comparisons with a null-valued parameter in one of them - which SQL Server cannot seek on, so
+    /// the duplicate check degrades to a scan of every patient in the clinic at exactly the moment
+    /// the physician is waiting on it. Branching in C# leaves each shape a plain equality the index
+    /// can serve.
+    /// </para>
+    /// <para>
+    /// <c>AsNoTracking</c> because these rows are read, projected and discarded. Tracking fifty
+    /// patients on every registration would put them in the change tracker, where the
+    /// <c>SaveChanges</c> that follows on the registration path would then consider writing them.
+    /// </para>
+    /// <para>
+    /// Ordered before it is limited, so the rows returned are a defined set rather than whatever
+    /// the storage engine happened to offer first.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<Patient>> FindDuplicateCandidatesAsync(
+        string? phoneMatchKey,
+        DateOnly? dateOfBirth,
+        Guid? excludePatientId,
+        CancellationToken cancellationToken)
+    {
+        if (phoneMatchKey is null && dateOfBirth is null)
+        {
+            return [];
+        }
+
+        var query = _db.Patients.AsNoTracking();
+
+        if (excludePatientId is { } exclude)
+        {
+            query = query.Where(p => p.Id != exclude);
+        }
+
+        if (phoneMatchKey is not null && dateOfBirth is { } bothDob)
+        {
+            query = query.Where(p => p.PhoneMatchKey == phoneMatchKey || p.DateOfBirth == bothDob);
+        }
+        else if (phoneMatchKey is not null)
+        {
+            query = query.Where(p => p.PhoneMatchKey == phoneMatchKey);
+        }
+        else
+        {
+            var dob = dateOfBirth!.Value;
+            query = query.Where(p => p.DateOfBirth == dob);
+        }
+
+        return await query
+            .OrderBy(p => p.RegisteredUtc)
+            .ThenBy(p => p.Id)
+            .Take(PatientDuplicateService.CandidateLimit)
+            .ToListAsync(cancellationToken);
+    }
 
     /// <inheritdoc />
     public async Task AddAsync(Patient patient, CancellationToken cancellationToken) =>

@@ -19,7 +19,7 @@ folder-per-feature React structure and the test project layout all follow the pl
 | F-3 | ClinicProfile + first-run setup gate | Awaiting verification | `f-3-clinic-profile` / `feature/f-3-clinic-profile` | 2026-09-03 | Ready for verification-pms. **The "315 tests pass" claim below stopped reproducing on 2026-09-01 20:00 UTC through no fault of F-3** — it inherited F-2's `SessionExpiryTests` fake-clock defect (see the F-2 row). F-3's own code and tests are not implicated. **Fixed on `fix/session-expiry-clock`; backend now 170 passed / 0 failed / 0 skipped.** Original claim, for the record: 315 automated tests pass (169 .NET + 146 Vitest), 0 skipped, re-run from a clean build, plus a live smoke against a throwaway database. Built against the plan's **Q-4** assumption (PNG signature ≤ 200 KB, footer ≤ 500 chars, nothing prints until `IsSetupComplete`). **Dependency note: F-2 is still tracker-status `Awaiting verification` but was merged to `main` at `2eb69d4` before its gate ran — the same out-of-band-merge pattern F-1 recorded.** F-3 was built on that merged code because it is on `main` and demonstrably working, **not** because F-2 is `Built & Verified`; only verification-pms sets that. **One real defect was found by the live smoke and fixed** (oversize signature upload returned 400 instead of the specified 413 — the integration test had passed for a reason that did not hold under real Kestrel; see the log). E2E browser launch still blocked by the host. |
 | F-4 | Doctor-configured settings | Awaiting verification | `f-4-clinic-settings` / `feature/f-4-clinic-settings` | 2026-09-04 | Ready for verification-pms. Built against the plan's **Q-9** assumption (gender seeded Female/Male/Other/Not stated, "Not stated" never removable — E-23) and **Q-10 / Q-2** (temperature unit from `ClinicProfile`, BP in mmHg, thresholds blank by default, warnings soft — E-12, E-24). **417 automated tests pass (243 .NET + 174 Vitest), 0 failed, 0 skipped**, re-run from a clean build, plus a live smoke against a throwaway database under real Kestrel. **Dependency note: F-3 is still tracker-status `Awaiting verification` but is on `main` at `990ec19`; F-4 was built on it because it is on `main` and demonstrably working (its migration applies and its endpoints answer live), not because F-3 is `Built & Verified` — only verification-pms sets that.** Carries one commit that is **not** F-4 work: the `fix/session-expiry-clock` test-fixture fix, cherry-picked file-only because that branch is still unmerged and `main` alone fails 3 tests. E2E `settings.spec.ts` written and typechecked; browser launch still blocked by the host. |
 | F-5 | Patient registration & profile | Awaiting verification | `f-5-patient-registration` / `feature/f-5-patient-registration` | 2026-09-07 | Ready for verification-pms. Built against the plan's **Q-16** assumption (DOB *or* approx age + `AgeRecordedOn`, never a bare age — E-9), **Q-7** (phone optional but prompted, profile flagged incomplete — E-8, E-20) and **Q-9** (gender values come from F-4's `SettingOption` list). **525 automated tests pass (315 .NET + 210 Vitest), 0 failed, 0 skipped**, re-run from a clean build, plus a live smoke against a throwaway database under real Kestrel. **Dependency note — this branch differs from every prior feature: F-4 is NOT on `main`.** F-4's commit `9844075` exists only on `feature/f-4-clinic-settings`, so this worktree was cut from **that branch**, not from `main`. F-5 therefore carries F-4's commits and **F-4 must be merged before or together with F-5**. This was a builder's judgement call, not a user instruction — `AskUserQuestion` is unavailable inside a subagent; see the log entry for the two alternatives rejected and why. **One plan defect found and flagged, not silently substituted:** the check constraint written out in plan F-5 §2 is a tautology that would enforce nothing; the constraint actually shipped is the rule that section's own prose and E-9 describe. E2E `patient-registration.spec.ts` written and typechecked; browser launch still blocked by the host. |
-| F-6 | Duplicate detection + `merged_into` pointer | Not Started | — | — | Depends on F-5. Needs decision Q-13. |
+| F-6 | Duplicate detection + `merged_into` pointer | Awaiting verification | `f-6-duplicate-detection` / `feature/f-6-duplicate-detection` | 2026-09-07 | Ready for verification-pms. **634 automated tests pass (399 .NET + 235 Vitest), 0 failed, 0 skipped**, re-run from a clean build (every `bin/`+`obj/` deleted), plus a live smoke against a throwaway database under real Kestrel. **Q-13 is answered in code and needs the plan owner's confirmation — read this before verifying.** "Same phone" is defined as *equal on the last 10 significant digits, after dropping one leading trunk zero*, which is what makes `+91 98765 43210` and `098765 43210` one patient rather than two (the gap verification-pms reported against F-5). The cost — two numbers agreeing in their last 10 digits but belonging to different countries would match — is bounded by the rule also requiring name similarity ≥ 0.85, and by the warning never blocking. See the log for the reasoning and the alternatives rejected. **One deliberate widening of plan F-6 §2, flagged not smuggled:** a stored, indexed `PhoneMatchKey` column (the plan said indexes only), because the matching rule must be sargable and the migration must backfill F-5's existing rows or they would be permanently invisible to the check. **F-5's `PatientNormalizer.NormalizePhone` doc comment, which verification-pms found overclaiming, is corrected** rather than left standing. **Dependency note: like F-5, this branch is NOT cut from `main`.** It is cut from `feature/f-5-patient-registration` at `e1bf206` and therefore carries F-4's and F-5's commits; **F-4 and F-5 must merge before or together with F-6.** E2E `patient-duplicates.spec.ts` written and typechecked; browser launch still blocked by the host. |
 | F-7 | Patient search, recent patients, picker | Not Started | — | — | Depends on F-5. Needs decision C-22 (no `Q-` exists). |
 | F-8 | Patient edit + deactivate (no hard delete) | Not Started | — | — | Depends on F-5, F-17. Needs decision Q-6. |
 | F-9 | Appointments | Not Started | — | — | Depends on F-5, F-7. Needs decision Q-5, Q-14. |
@@ -1697,3 +1697,355 @@ before F-14.**
 
 Committed on `feature/f-5-patient-registration`. Not merged, not pushed, worktree not removed.
 Next: `verification-pms` — and note it must verify against the **F-4 branch** baseline, not `main`.
+
+---
+
+### 2026-09-07 — F-6 duplicate detection at registration + `merged_into` pointer
+
+**Status: `Awaiting verification`.** Handed to verification-pms. Branch left for review, not merged,
+not pushed, worktree not removed.
+
+- Got an isolated worktree from `worktree-pms` at
+  `C:\Users\NileshMalviya\source\repos\f-6-duplicate-detection`, branch
+  `feature/f-6-duplicate-detection`, **cut from `feature/f-5-patient-registration` at `e1bf206`**,
+  not from `main`. Confirmed distinct from the main working tree before writing anything.
+- **Confirmed the plan I built against is the committed one**, as instructed:
+  `git diff main:doc/planning-pms-verification.md HEAD:doc/planning-pms-verification.md` is empty,
+  and the worktree was clean at `e1bf206` before I started. The F-6 section I built from is
+  byte-identical to what is on `main`, so this is not a case of the doc drift `CLAUDE.md` warns
+  about.
+
+**Dependency note, repeated because it compounds.** F-5's entry records that its branch was cut from
+F-4's rather than from `main`. F-6 is cut from F-5's, so this branch now carries **three** unmerged
+features: F-4 (`9844075`), F-5 (`e1bf206`) and F-6. **Merging F-6 alone would silently carry F-4 and
+F-5 in with it**, neither of which has cleared `code-review-pms`. That is a sequencing fact for
+`finishing-pms` and the user, not something I can or should resolve by rebasing.
+
+**Note on this file's F-5 row.** The branch's copy predates `verification-pms`'s F-5 pass, so it
+still reads `Awaiting verification`; the main tree's copy reads **Built & Verified** as of
+2026-09-07. I have deliberately **not** edited F-5's row here — that status is verification-pms's to
+set and its authoritative copy is in the main tree. The two reconcile on merge.
+
+---
+
+#### The open decision: Q-13, and specifically what makes two phone numbers the same number
+
+This is the question the feature turns on, it was handed to me explicitly, and it is the thing I
+most want the plan owner to confirm rather than wave through.
+
+**The problem.** F-5 stores `NormalizedPhone` as digits only. That is correct and deliberate — it
+collapses punctuation and spacing without policing the input (E-59). But digits-only means:
+
+| Typed | `NormalizedPhone` |
+|---|---|
+| `+91 98765 43210` | `919876543210` |
+| `098765 43210` | `09876543210` |
+| `9876543210` | `9876543210` |
+
+Three keys, one number. Plan F-6 §1's rule says "same `NormalizedPhone`", and under literal string
+equality these three never match. The same person typed once with a country code and once with a
+trunk zero would have produced two patient records **with no warning shown to anybody** — E-25
+(Critical, `[DI]`) occurring through precisely the mechanism this feature exists to catch.
+
+**What I built.** `PatientNormalizer.PhoneMatchKey` — a *separate, derived, deliberately lossy* key:
+
+1. drop **one** leading zero (a domestic trunk prefix is dialling syntax, not part of the number —
+   only one, so `00`-style international prefixes are handled by step 2 rather than by stripping
+   zeros until something looks plausible);
+2. keep the **last 10 digits** (this discards a country code of any length without carrying a table
+   of them);
+3. produce **null** below 6 digits, so a 3-digit extension yields no key at all rather than a key
+   that every patient on that extension shares.
+
+All three rows above become `9876543210`. Proven live on genuinely pre-existing rows, below.
+
+**The cost, stated rather than buried.** Two numbers that agree in their last ten digits but belong
+to different countries would match. I judged that acceptable, and the judgement rests on the
+consequence being bounded rather than on the case being impossible:
+
+- the phone key is **never sufficient alone** — F-6's rule also requires name similarity ≥ 0.85;
+- the result is a **dismissible warning**, never a refusal (REC-2);
+- so a false positive costs one click, whereas the opposite error — failing to match, splitting one
+  patient's history across two records — is rated **Critical** and is not recoverable by clicking
+  anything.
+
+**Two alternatives I rejected, recorded so the owner can overrule me on the evidence:**
+
+1. **Scope cross-country matching out** (match only exact `NormalizedPhone`, per the plan's literal
+   wording). Rejected: it leaves the reported gap open, and the country-code/trunk-zero pair is not
+   an exotic case — it is the single most likely way one patient gets registered twice here.
+2. **Strip a trunk zero but keep the full remaining string** (no last-10 truncation). This fixes
+   `0…` vs bare, but *not* `+91…` vs `0…`, which is the exact pair that was reported. Half a fix.
+
+**Where the answer lives if the owner decides differently:** `PatientNormalizer.PhoneMatchKey` and
+the T-SQL backfill constant in the `AddPatientDuplicateIndexes` migration. Two places, and a test
+(`The_migrations_backfill_agrees_with_the_matching_rule_in_code`) that fails if they ever disagree.
+
+**The overclaiming comment is fixed, as instructed.** `NormalizePhone`'s doc comment asserted that
+`+91 98765-43210`, `098765 43210` and `9876543210` were collapsed together. They were not and never
+were. The comment now says what the method actually does, states plainly that the earlier version
+was wrong, and points at `PhoneMatchKey` for the collapsing — which is now a true claim, because
+F-6 made it one.
+
+---
+
+#### Deviation from plan F-6 §2 — a stored column, not just indexes
+
+Plan F-6 §2 says: "Adds `MergedIntoPatientId:Guid?` usage and an index on `NormalizedPhone` and
+`NormalizedName`. Migration: **`AddPatientDuplicateIndexes`**."
+
+**Both of those indexes already exist** — F-5 created them where the columns were introduced, and
+its own tracker entry records that decision. So the plan's migration would have been empty. What
+F-6 actually needs is a third column, and the migration keeps the plan's name verbatim:
+
+- **`Patient.PhoneMatchKey` (`nvarchar(20)`, nullable) + `IX_Patient_PhoneMatchKey`.** Stored rather
+  than computed at query time for two reasons. It is **indexable** — a rule expressed as
+  `RIGHT(NormalizedPhone, 10)` in a `WHERE` clause cannot be seeked on, so every registration would
+  scan every patient while the physician waits. And it keeps the lossy form **separate** from the
+  faithful one, so `NormalizedPhone` still holds every digit typed and a future revision of the
+  matching rule can recompute from it.
+- **The migration backfills existing rows.** Load-bearing, not housekeeping: without it, every
+  patient registered under F-5 would carry a null key and be **permanently invisible to the
+  duplicate check**. The feature would look like it worked while protecting only patients registered
+  after it shipped — the worst available outcome, because nothing would appear broken.
+- The backfill restates the C# in T-SQL, which is a drift risk. Closed by a test rather than by
+  care: `The_migrations_backfill_agrees_with_the_matching_rule_in_code` runs **the constant the
+  migration actually shipped** against seeded rows and compares every result to
+  `PatientNormalizer.PhoneMatchKey`.
+
+---
+
+#### The one design call the plan's own acceptance criteria forced
+
+Plan F-6 §1's identity rule is `name similarity ≥ 0.85 AND (same phone OR same DOB)`. Plan
+acceptance criterion 3 says "a phone shared by three family members returns **all three** as
+candidates" (E-27). **Those two cannot both be true of one filtered list** — three family members
+have different names, so the identity rule excludes them.
+
+Resolved by having the check return the household and *mark* the duplicates, via an
+`isLikelyDuplicate` flag on every candidate:
+
+- `POST /api/patients/duplicate-check` returns **everyone** matching on phone or DOB — so AC-3 and
+  E-27 are literally true, and the physician sees that three Kumars already use this number, which
+  is genuinely useful context;
+- the **409 on registration** fires only when at least one candidate is `isLikelyDuplicate` — so
+  registering a sibling on the household phone is **not** interrupted. Warning on every family
+  member would train the physician to click through the dialog, which is the failure that makes the
+  whole feature worth nothing on the day it is right (E-28).
+
+The dialog renders the two groups separately and labels the second "N other patients use this phone
+number — different names, so probably family rather than a duplicate."
+
+**A second judgement call inside the similarity function**, flagged because it widens the plan's
+rule: `NameSimilarity.Ratio` takes the better of the two names compared as typed and compared with
+their words sorted, so `Ravi Kumar` / `Kumar Ravi` scores 1.0 rather than 0.36. Given-name-first
+versus family-name-first is not a spelling difference, and C-18/E-13 mean this application cannot
+reorder names structurally. It only ever *raises* a score, so it can add a dismissible warning and
+can never suppress one. Distance is measured over **grapheme clusters**, not UTF-16 units, or a
+Devanagari name would be held to a quietly stricter threshold than a Latin one (E-57).
+
+**The rule's known blind spot, recorded rather than quietly widened:** two records for one person
+with **no phone and no date of birth on either** are not detected, because every branch of the rule
+needs one of those. Warning on a matching name alone is what E-28 explicitly rules out. Pinned by a
+test (`A_registration_with_neither_a_phone_nor_a_date_of_birth_finds_nothing`) so it is a recorded
+limitation rather than a surprise, and confirmed live.
+
+---
+
+**Built (backend):**
+
+- `PMS.Domain/Entities/Patient.cs` — adds `PhoneMatchKey`.
+- `PMS.Application`: `Services/NameSimilarity.cs` (new — Levenshtein ratio over grapheme clusters,
+  word-order insensitive, `DefaultThreshold = 0.85`), `Services/PatientDuplicateService.cs` (new),
+  `Services/PatientProjection.cs` (new — extracted from `PatientService`, because `mark-merged`
+  became a second producer of a `PatientResponse`), `Services/PatientNormalizer.cs` (adds
+  `PhoneMatchKey`, corrects the `NormalizePhone` comment),
+  `Abstractions/IPatientDuplicateService.cs`, `Abstractions/IPatientRepository.cs`
+  (+`FindDuplicateCandidatesAsync`), `Abstractions/IPatientService.cs` (`CreateAsync` gains
+  `confirmDuplicate`), `Dtos/Patients/DuplicateCheckRequest.cs`,
+  `Dtos/Patients/DuplicateCandidateResponse.cs`, `Dtos/Patients/MarkMergedRequest.cs`,
+  `Exceptions/DuplicatePatientException.cs`, `DependencyInjection.cs`.
+- `PMS.Infrastructure`: `Persistence/Configurations/PatientConfiguration.cs` (column + index),
+  `Persistence/Repositories/PatientRepository.cs` (+`FindDuplicateCandidatesAsync`),
+  `Migrations/20260907124203_AddPatientDuplicateIndexes.cs`.
+- `PMS.Api`: `Controllers/PatientsController.cs` (+`duplicate-check`, +`{id}/mark-merged`,
+  +`?confirmDuplicate`), `Middleware/ProblemDetailsMiddleware.cs` (carries `candidates` on the 409).
+
+**Three backend decisions worth naming:**
+
+1. **The 409 is raised *after* validation and *before* the insert.** After validation, because
+   warning about a duplicate on a form that is going to be rejected anyway spends the physician's
+   attention on the wrong problem. Before the insert, because AC-1 requires it — a check that fired
+   afterwards would be a duplicate *report*, and the split history would already exist.
+2. **The repository pre-filter is a complete one.** Since the rule requires a phone or DOB match,
+   SQL narrows on exact equality and the fuzzy name comparison — which SQL Server cannot express
+   without a CLR function — runs in memory over a handful of rows. Written as three query shapes
+   rather than one predicate with null guards inside it, because the tidier version emits SQL with a
+   null-valued parameter that cannot be seeked on.
+3. **`mark-merged` refuses to rewrite anything.** Re-pointing an already-merged record is a 409
+   (`already-merged`), not an overwrite — undoing a merge belongs with the Phase-2 tooling that can
+   carry an audit trail. Repeating the *same* merge returns 200, because a retry after a timeout is
+   not a failure. Cycles are rejected by walking the survivor's chain (`merge-cycle`), bounded at 32
+   steps so pre-existing bad data reports rather than hangs.
+
+**Built (frontend):** `features/patients/DuplicateWarningDialog.tsx` (+ `duplicateCandidatesFrom`),
+`features/patients/usePatientDuplicates.ts` (`useDuplicateCheck` debounced 400 ms, `useMarkMerged`),
+`shared/components/PatientPickerRow.tsx` (new — the REC-12 four-field row, shared with F-7),
+`patientsApi.ts` (+`checkDuplicates`, +`markMerged`; `createPatient` gains `confirmDuplicate`),
+`types/patient.ts` (+`DuplicateCandidate`, `DuplicateCheckRequest`, `MarkMergedRequest`),
+`usePatients.ts`, `PatientForm.tsx`, `index.css`.
+
+**Data integrity check (F-6 §5) — the mechanism, not a mention.** This is the Duplicate-mode feature
+and it contains **no destructive operation at all**: no `DELETE` route, no `deletePatient` in the API
+client, and `mark-merged` writes exactly two fields on the losing record (a pointer and a status)
+while touching the survivor not at all. Asserted from three directions — a service test that
+snapshots every survivor field across a merge, an endpoint test that counts rows before and after,
+and an endpoint test that `DELETE /api/patients/{id}` does not exist. The self-referencing FK is
+`Restrict`, so the database refuses to let a delete cascade through a duplicate pointer; that showed
+up honestly in the integration fixture, which has to clear pointers before it can empty the table.
+
+**REC-12 is structural, not a convention.** `PatientPickerRow` cannot render a patient without name
++ phone tail + age/DOB + last visit date, so F-7's picker and F-9's inherit the rule by construction
+rather than by remembering it. `lastVisitDate` is on the contract and renders as "No visits
+recorded" — **always null until F-10**, since no Visit entity exists yet. Asserted as null by test,
+so F-10 has a test telling it to fill the field in.
+
+**Test results — run in the worktree after deleting every `bin/` and `obj/`, real output:**
+
+| Command | Result |
+|---|---|
+| `dotnet build PMS/backend/PMS.sln` | **Build succeeded, 0 Warning(s), 0 Error(s)** |
+| `dotnet test PMS/backend/PMS.sln` | `PMS.Application.Tests` **Failed: 0, Passed: 239, Skipped: 0**; `PMS.Api.IntegrationTests` **Failed: 0, Passed: 160, Skipped: 0** |
+| `npm test` (`vitest run`) in `PMS/frontend` | **20 files, 235 passed, 0 failed, 0 skipped** |
+| `npm run build` (`tsc -b && vite build`) | Succeeded — 115 modules, emitted into `PMS/backend/src/PMS.Api/wwwroot` |
+| `tsc --noEmit -p tsconfig.json` on `PMS.E2E` | **exit 0**, no diagnostics |
+
+**Total: 634 automated tests passing (399 .NET + 235 Vitest), 0 failed, 0 skipped.** Counts read,
+not exit codes — this host prints `Passed!` on a zero-test project.
+
+New test files: `PMS.Application.Tests/Services/PatientDuplicateServiceTests.cs` (the plan's named
+target), `PMS.Application.Tests/Services/PatientMatchingPrimitivesTests.cs` (not in the plan — the
+phone-key and similarity rules kept findable on their own, since Q-13's answer is what changes
+them), `PMS.Api.IntegrationTests/Endpoints/PatientDuplicateEndpointTests.cs` (the plan's named
+target), `frontend/src/features/patients/DuplicateWarningDialog.test.tsx` (the plan's named target),
+`frontend/src/features/patients/PatientFormDuplicates.test.tsx`,
+`PMS.E2E/specs/patient-duplicates.spec.ts` (the plan's named target).
+
+**F-5's existing tests were adapted, not weakened.** `CreateAsync` gained a parameter, so ~37 call
+sites needed updating. The test-assembly shim forwards **`confirmDuplicate: false`** — the
+production default — rather than `true`. Passing `true` would have compiled just as well and quietly
+removed F-5's whole suite from covering the interaction between the two features; passing `false`
+means those tests now run through F-6's check on the way to every insert, so if the check ever
+starts refusing an ordinary registration, F-5's tests are the ones that say so.
+
+**Live smoke against a throwaway database (`PMSDb_F6Smoke`), under real Kestrel.**
+
+Run on **port 7291, not 7191** — 7191 was already bound by a leftover instance from another
+worktree, and the first attempt's `curl` was answered by *that* build. Caught it in the log
+(`Failed to bind to address https://localhost:7191`) rather than reporting someone else's code as
+mine. The other process was left running, untouched.
+
+*First, the backfill — against genuinely pre-existing rows, which is the one thing the integration
+test cannot prove:* migrated the fresh database **only as far as F-5's `AddPatient`**, confirmed
+`PhoneMatchKey` did not exist (`0` columns), inserted five rows exactly as F-5 writes them, then
+applied `AddPatientDuplicateIndexes`:
+
+| FullName | NormalizedPhone | PhoneMatchKey after the migration |
+|---|---|---|
+| Legacy CountryCode | `919876543210` | **`9876543210`** |
+| Legacy TrunkZero | `09876543210` | **`9876543210`** |
+| Legacy Bare | `9876543210` | **`9876543210`** |
+| Legacy Extension | `204` | `(null)` |
+| Legacy NoPhone | `(null)` | `(null)` |
+
+*Then the API:*
+
+| Check | Result |
+|---|---|
+| Register `Ravi Kumar` / `+91 98765 00001` / DOB | **201** |
+| Same person as `098765 00001`, no confirm (**Q-13 + AC-1**) | **409**, `ruleType: duplicate-confirmation-required`; **Ravi rows still 1** |
+| The 409's candidate row | `fullName` + `phoneTail 0001` + `ageDisplay "41"` + `dateOfBirth` + `lastVisitDate null` + `matchReason phone-and-date-of-birth` + `isLikelyDuplicate true` (**AC-4**) |
+| Repeat with `?confirmDuplicate=true` (**AC-2**) | **201**; Ravi rows now 2 |
+| Stored columns on those two rows | `NormalizedPhone` differs (`919876500001` / `09876500001`), **`PhoneMatchKey` identical (`9876500001`)** |
+| Register `Deepa Kumar` on the shared household number | **201** — a family member is not interrupted |
+| `duplicate-check` for `Ravi Kumar` on that number (**AC-3, E-27**) | **200**, **5 candidates**: 2 × `Ravi Kumar` `likely=true` (sim 1.000); `Anil` 0.700, `Sunita` 0.583, `Deepa` 0.545, all `likely=false` |
+| `mark-merged` (**AC-5**) | **200**, status `Inactive`, `mergedIntoPatientId` set, reason `"Marked as a duplicate of Ravi Kumar. Same person, registered twice."`; **row count 10 → 10**; both records still fetch **200** |
+| Repeat the same merge | **200** — a retry is not a conflict |
+| Reverse it (**cycle**) | **409** `ruleType: merge-cycle`; survivor still `Status 1`, pointer `(null)` |
+| Merge a record into itself | **400** |
+| `DELETE /api/patients/{id}` (**AC-6**) | **404**; final row count **10** |
+| The rule's blind spot | second name-only `Meera` → **201** (not detected, as documented); `duplicate-check` with only a name → **200**, 0 candidates |
+| F-1..F-5 regressions | `health 200`, `health/db 200`, unmatched `/api/*` **404**, `auth/session 200`, gender options `200`, name-only registration `201` with `"Age not recorded"` + incomplete flag, future DOB **400**, SPA root `200` |
+
+Database dropped and the instance stopped afterwards.
+
+**Acceptance criteria — walked line by line:**
+
+1. *Registering a name+phone already on file returns 409 with candidates before any row is written
+   (E-25)* — **met**, proven live (409 with the row count unmoved) and by
+   `Registering_a_name_and_phone_already_on_file_returns_409_before_any_row_is_written`.
+2. *The warning is dismissible — confirming creates the patient (warn, never block)* — **met**,
+   proven live and by `Confirming_the_warning_creates_the_patient`. The dialog's "Register anyway" is
+   asserted **enabled** by a frontend test, so a future change cannot turn the warning into a block
+   by disabling it.
+3. *A phone shared by three family members returns all three; none is auto-selected (E-27)* —
+   **met**, and it is what forced the `isLikelyDuplicate` design above. Live: five rows returned on
+   one number. "None is auto-selected" is structural — there is no field on the response that could
+   express a selection and no selectable control in the dialog, asserted by test.
+4. *Every candidate row displays name, phone tail, age/DOB and last visit date (E-28, REC-12)* —
+   **met**, at three levels: the DTO, `PatientPickerRow` (which cannot render without them), and the
+   live 409 body. `lastVisitDate` is null until F-10 and renders as "No visits recorded".
+5. *`mark-merged` leaves both patients' visits queryable and deletes nothing (E-26)* — **met** as
+   far as it can be today: both records remain fetchable and the row count is unchanged, proven
+   live. **There are no visits yet** — F-9/F-10 build them — so what is provable is that neither
+   record becomes unreachable, which is the property every future visit query inherits.
+6. *No endpoint in this feature deletes or overwrites a patient row* — **met**, asserted rather than
+   assumed: `DELETE` returns 404, the survivor's every field is snapshot-compared across a merge,
+   and re-pointing an existing merge is refused.
+
+**Assumptions recorded inline in the code:**
+
+- **`PatientNormalizer.PhoneMatchKey`** — the Q-13 answer, with the full cost/benefit reasoning at
+  the call site. The single most important thing for the owner to confirm.
+- **`NameSimilarity`** — the plan names "trigram/Levenshtein ratio" but not the function;
+  grapheme-cluster distance and word-order insensitivity are this implementation's choices, both
+  widening recall rather than narrowing it.
+- **`DuplicateCheckRequest.ExcludePatientId`** — not in the plan's three-field sketch, but the
+  plan's own test strategy names "self-exclusion on edit" and F-8 needs it. Without it every edit
+  would report the patient as their own duplicate, which trains the physician to dismiss the
+  warning.
+- **`PatientDuplicateService.BuildInactiveReason`** — the plan's `note` has no stated home; it goes
+  on `InactiveReason` (the column F-8 uses) behind a fixed prefix naming the survivor.
+- **`PatientProjection.MissingFields`** — F-5's Q-7/Q-16 assumption, moved not changed.
+
+**Known environment limitation — E2E written, not proven (unchanged since F-1):**
+
+`PMS.E2E/specs/patient-duplicates.spec.ts` is written at the plan's named target, covers **both**
+cases the plan names (E-25 and E-27) plus E-28, the Q-13 phone equivalence and the dismissal path,
+and typechecks clean (exit 0). `npx playwright test --project=chromium` gives **7 failed, all
+`browserType.launch: spawn EPERM`** — the same host process-spawn denial recorded since F-1, not a
+defect in this code. **These specs are not claimed as passing.** Each one's behaviour is proven by a
+suite that does run: E-25 by `PatientFormDuplicates.test.tsx` and the endpoint tests plus the live
+smoke; E-27 by `A_phone_shared_by_three_family_members_returns_all_three` at both service and
+endpoint level and live; E-28 by `DuplicateWarningDialog.test.tsx` and the live 409 body; Q-13 by
+`PatientMatchingPrimitivesTests` and live. The genuinely unproven axis remains real-browser
+rendering. **The deadline recorded against F-1 stands: the harness must work before F-14.**
+
+**Flagged for review — not decided here:**
+
+- **Q-13's phone rule is the headline.** It is implemented, tested and documented, and it needs the
+  plan owner's yes or no. If the answer differs it is a two-file change, with a test guarding the
+  pair.
+- **Plan F-6 §2 vs. the shipped migration** — a stored column where the plan named only indexes.
+  Reasoned above; the plan should be amended or the deviation accepted on the record.
+- **AC-3 vs. the identity rule** — the plan's own acceptance criterion and its own rule pull in
+  opposite directions. The `isLikelyDuplicate` split resolves it; the plan should say so.
+- **The blind spot** — no phone and no DOB on either record means no detection. A real residual gap,
+  inherent in the plan's rule, and worth the owner knowing about explicitly.
+- **`dotnet-ef` is now installed** (10.0.11) on this machine, so `CLAUDE.md`'s "not installed"
+  gotcha is stale. Migrations were generated and applied normally.
+- **React Router v6 advisories are unchanged** and have now been carried from F-1 through F-6
+  without a decision. F-2's committed seed credential likewise remains a live exposure.
+
+Committed on `feature/f-6-duplicate-detection`. Not merged, not pushed, worktree not removed.
+Next: `verification-pms` — and note it must verify against the **F-5 branch** baseline, not `main`.
