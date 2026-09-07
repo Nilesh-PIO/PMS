@@ -59,6 +59,10 @@ public static class DependencyInjection
         // database, so with no connection string there is nothing to read them from.
         services.AddScoped<IClinicSettingsRepository, ClinicSettingsRepository>();
 
+        // F-5. Same branch, same reason - patient records live in the database, so with no
+        // connection string there is nothing to register them in.
+        services.AddScoped<IPatientRepository, PatientRepository>();
+
         return services;
     }
 }

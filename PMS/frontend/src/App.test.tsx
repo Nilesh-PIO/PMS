@@ -4,7 +4,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { SESSION_QUERY_KEY } from './features/auth/useSession';
 import { REGISTERED_PATHS, routes } from './routes';
-import { aClinicProfile, aSession, jsonResponse, problemResponse, stubFetch } from './test/testUtils';
+import {
+  aClinicProfile,
+  aPatientDetail,
+  aSession,
+  jsonResponse,
+  problemResponse,
+  stubFetch,
+} from './test/testUtils';
 
 /**
  * F-1's route-table tests, updated by F-2 and F-3.
@@ -30,6 +37,11 @@ function renderAt(
     '/api/clinic-settings/options?category=VitalsNotRecordedReason&includeInactive=true': () =>
       jsonResponse([]),
     '/api/clinic-settings/vital-ranges': () => jsonResponse([]),
+    // F-5. Both patient screens fetch on mount - the profile its record, the form F-4's gender
+    // list. Without these the route test would assert against an error state rather than the
+    // screen itself.
+    '/api/clinic-settings/options?category=Gender': () => jsonResponse([]),
+    '/api/patients/abc-123': () => jsonResponse(aPatientDetail()),
   });
 
   const client = new QueryClient({
@@ -55,7 +67,6 @@ describe('app shell routing', () => {
   it.each([
     ['/', 'Today'],
     ['/patients', 'Patients'],
-    ['/patients/abc-123', 'Patient profile'],
     ['/visits/abc-123', 'Consultation'],
     ['/export', 'Export'],
     ['/audit', 'Audit log'],
@@ -69,6 +80,15 @@ describe('app shell routing', () => {
     ['/settings/options', 'Lists'],
     ['/settings/vitals-ranges', 'Vital ranges'],
   ])('registers %s and renders F-4s real settings page', async (path, heading) => {
+    renderAt(path);
+
+    expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['/patients/new', 'Register a patient'],
+    ['/patients/abc-123', 'Ravi Kumar'],
+  ])('registers %s and renders F-5s real patient screen', async (path, heading) => {
     renderAt(path);
 
     expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
@@ -138,6 +158,10 @@ describe('app shell route guard (F-2)', () => {
   it.each([
     '/',
     '/patients',
+    // F-5's two screens are behind the same guard as everything else under `/`. They are the
+    // first routes in this application that render real patient data, so the guard mattering
+    // here is the point rather than a formality.
+    '/patients/new',
     '/patients/abc-123',
     '/visits/abc-123',
     '/settings/clinic',
