@@ -388,3 +388,212 @@ body {
   flex-wrap: wrap;
   margin-top: 0.5rem;
 }
+
+/* --- F-4: doctor-configured settings ------------------------------------- */
+
+.settings-list {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--pms-border);
+}
+
+.settings-list__intro,
+.settings-list__note {
+  max-width: 44rem;
+  color: var(--pms-muted);
+  font-size: 0.875rem;
+}
+
+.settings-list__items {
+  list-style: none;
+  margin: 1rem 0;
+  padding: 0;
+}
+
+.settings-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0;
+  border-bottom: 1px dashed var(--pms-border);
+}
+
+.settings-list__offered,
+.settings-list__reorder {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-top: 1.6rem;
+}
+
+.settings-list__add {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.settings-list__add .button {
+  margin-top: 1.6rem;
+}
+
+.settings-list__saved {
+  margin: 0.5rem 0 0;
+  color: var(--pms-muted);
+  font-size: 0.875rem;
+}
+
+.vital-ranges__list {
+  list-style: none;
+  margin: 1rem 0;
+  padding: 0;
+}
+
+.vital-ranges__row {
+  padding: 0.75rem 0;
+  border-bottom: 1px dashed var(--pms-border);
+}
+
+.vital-ranges__metric {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.vital-ranges__row .field {
+  display: inline-block;
+  margin-right: 1.5rem;
+  min-width: 12rem;
+}
+
+/* A metric with no thresholds is the default state of this system, so it reads as an ordinary
+   note rather than as a warning about something being unfinished. */
+.vital-ranges__state {
+  margin: 0.25rem 0 0;
+  color: var(--pms-muted);
+  font-size: 0.8125rem;
+}
+
+/* --- F-6: duplicate warning ---------------------------------------------- */
+
+/* A modal overlay rather than an inline panel. The physician is being asked a question whose
+   answer decides whether a second patient record exists, and an inline warning above the Save
+   button is one the eye learns to skip past. */
+.duplicate-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(31, 41, 51, 0.72);
+  overflow-y: auto;
+}
+
+.duplicate-dialog__panel {
+  width: 100%;
+  max-width: 34rem;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 1.75rem;
+  background: var(--pms-surface);
+  border-radius: 8px;
+}
+
+.duplicate-dialog__panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+}
+
+.duplicate-dialog__lead {
+  margin: 0 0 1rem;
+  color: var(--pms-muted);
+  font-size: 0.9rem;
+}
+
+.duplicate-dialog__list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.duplicate-dialog__item {
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--pms-border);
+  border-radius: 6px;
+}
+
+.duplicate-dialog__reason {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--pms-muted);
+}
+
+/* Visually quieter than the suspected duplicates above it. These rows are context - relatives on
+   a shared household number (E-27) - and styling them identically would make the whole dialog read
+   as one long list of warnings. */
+.duplicate-dialog__household {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--pms-border);
+}
+
+.duplicate-dialog__household h3 {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+}
+
+.duplicate-dialog__household .duplicate-dialog__item {
+  border-style: dashed;
+}
+
+.duplicate-dialog__actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1.25rem;
+}
+
+/* --- F-6/F-7: the shared patient picker row ------------------------------- */
+
+/* Four labelled facts, always. REC-12 forbids a name-only row anywhere in this application, and a
+   definition list keeps each value attached to what it is - "3210" alone means nothing. */
+.patient-picker-row__name {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.patient-picker-row__badge {
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--pms-border);
+  color: var(--pms-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.patient-picker-row__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  margin: 0;
+}
+
+.patient-picker-row__fact {
+  min-width: 7rem;
+}
+
+.patient-picker-row__fact dt {
+  color: var(--pms-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.patient-picker-row__fact dd {
+  margin: 0;
+  font-size: 0.9rem;
+}

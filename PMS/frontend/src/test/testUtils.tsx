@@ -8,6 +8,7 @@ import {
   TemperatureUnit,
   type ClinicProfile,
 } from '../features/clinic/types/clinicProfile';
+import type { PatientDetail } from '../features/patients/types/patient';
 
 /**
  * Shared test helpers. Not a test file itself - the vitest `include` pattern only picks up
@@ -43,6 +44,36 @@ export function aClinicProfile(overrides: Partial<ClinicProfile> = {}): ClinicPr
     signatureImageDataUrl: null,
     isSetupComplete: true,
     updatedUtc: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+/**
+ * A registered patient, as the API returns the full profile (F-5).
+ *
+ * Defaults to a *complete* profile, so a test that cares about the incomplete case says so
+ * explicitly - `aPatientDetail({ primaryPhone: null, missingFields: ['phone'] })` - and the
+ * unusual state is the visible one in the test body.
+ */
+export function aPatientDetail(overrides: Partial<PatientDetail> = {}): PatientDetail {
+  return {
+    id: 'abc-123',
+    fullName: 'Ravi Kumar',
+    normalizedName: 'ravi kumar',
+    dateOfBirth: '1985-03-02',
+    approxAgeYears: null,
+    ageRecordedOn: null,
+    ageDisplay: '41',
+    gender: 'Male',
+    primaryPhone: '+91 98765-43210',
+    phoneTail: '3210',
+    altContact: null,
+    registeredUtc: new Date('2026-09-07T10:30:00Z').toISOString(),
+    status: 'Active',
+    inactiveReason: null,
+    mergedIntoPatientId: null,
+    isProfileIncomplete: false,
+    missingFields: [],
     ...overrides,
   };
 }

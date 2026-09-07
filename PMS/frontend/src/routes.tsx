@@ -1,6 +1,10 @@
 import type { RouteObject } from 'react-router-dom';
 import { LoginPage } from './features/auth/LoginPage';
 import { ClinicProfilePage } from './features/clinic/ClinicProfilePage';
+import { ClinicSettingsPage } from './features/clinic/ClinicSettingsPage';
+import { VitalRangesPage } from './features/clinic/VitalRangesPage';
+import { PatientForm } from './features/patients/PatientForm';
+import { PatientProfile } from './features/patients/PatientProfile';
 import { FirstRunSetupPage } from './features/setup/FirstRunSetupPage';
 import { AppLayout } from './shared/components/AppLayout';
 import { PlaceholderPage } from './shared/components/PlaceholderPage';
@@ -49,9 +53,18 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <PlaceholderPage title="Today" featureId="F-7 / F-9" /> },
       { path: 'patients', element: <PlaceholderPage title="Patients" featureId="F-7" /> },
-      { path: 'patients/:id', element: <PlaceholderPage title="Patient profile" featureId="F-5" /> },
+      // F-5. `patients/new` is listed before `patients/:id` for readability only - React Router v6
+      // ranks a static segment above a dynamic one regardless of declaration order, so "new" can
+      // never be read as a patient id.
+      { path: 'patients/new', element: <PatientForm /> },
+      { path: 'patients/:id', element: <PatientProfile /> },
       { path: 'visits/:id', element: <PlaceholderPage title="Consultation" featureId="F-10" /> },
       { path: 'settings/clinic', element: <ClinicProfilePage /> },
+      // F-4. Both sit inside RequireSetup like every other settings screen: configuring the
+      // clinic's lists before the clinic itself has a name would be an odd place to start, and
+      // F-3's gate already routes a first-run visitor to /setup.
+      { path: 'settings/options', element: <ClinicSettingsPage /> },
+      { path: 'settings/vitals-ranges', element: <VitalRangesPage /> },
       { path: 'export', element: <PlaceholderPage title="Export" featureId="F-18" /> },
       { path: 'audit', element: <PlaceholderPage title="Audit log" featureId="F-17" /> },
       {
@@ -68,9 +81,12 @@ export const REGISTERED_PATHS = [
   '/setup',
   '/',
   '/patients',
+  '/patients/new',
   '/patients/:id',
   '/visits/:id',
   '/settings/clinic',
+  '/settings/options',
+  '/settings/vitals-ranges',
   '/export',
   '/audit',
 ] as const;
