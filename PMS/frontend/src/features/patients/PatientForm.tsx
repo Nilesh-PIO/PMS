@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { isProblemDetailsError } from '../../shared/api/problemDetails';
 import { PatientDataForm } from '../../shared/components/forms/PatientDataForm';
 import { TextField } from '../../shared/components/forms/TextField';
@@ -41,17 +41,27 @@ export function PatientForm() {
   const navigate = useNavigate();
   const create = useCreatePatient();
   const submitOnce = useSubmitOnce();
+  const [searchParams] = useSearchParams();
 
   // Only the active options: a gender the clinic has retired must not be selectable for a *new*
   // record, even though existing records keep displaying it (F-4's integrity rule 2).
   const genderOptions = useSettingOptions('Gender');
 
-  const [fullName, setFullName] = useState('');
+  // F-7 / E-7. A search that found nothing offers "Register '<typed text>' as a new patient", and
+  // this is where the typed text lands. Retyping a name that is already on screen is exactly the
+  // friction that makes someone abbreviate it differently the second time - which is how a
+  // near-duplicate gets created by the workflow meant to prevent one.
+  //
+  // Read as lazy state initialisers, not as derived values: after the first render this is an
+  // ordinary editable form, and a later URL change must not overwrite what is being typed.
+  const [fullName, setFullName] = useState(() => searchParams.get('name')?.trim() ?? '');
   const [ageMode, setAgeMode] = useState<AgeMode>('unknown');
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [approxAgeYears, setApproxAgeYears] = useState('');
   const [gender, setGender] = useState('');
-  const [primaryPhone, setPrimaryPhone] = useState('');
+  // A search query that was all digits prefills the *phone*, not the name - someone who searched a
+  // phone number and found nobody knows the number, not the spelling.
+  const [primaryPhone, setPrimaryPhone] = useState(() => searchParams.get('phone')?.trim() ?? '');
   const [altContact, setAltContact] = useState('');
   const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
 

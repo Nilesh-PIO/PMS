@@ -63,8 +63,12 @@ describe('DuplicateWarningDialog (F-6)', () => {
   });
 
   it('states a missing phone rather than leaving the cell blank', () => {
-    // A blank is something the eye slides past. "No phone" is itself disambiguating - one of these
-    // two people has a number on file and the other does not.
+    // A blank is something the eye slides past. A stated absence is itself disambiguating - one of
+    // these two people has a number on file and the other does not.
+    //
+    // MERGE NOTE (F-6 + F-7): the wording is "No phone recorded" rather than F-6's original
+    // "No phone" because the two features' picker rows became one component and F-7's wording won.
+    // The property under test is unchanged - the cell states the absence rather than being blank.
     render(
       <DuplicateWarningDialog
         candidates={[aCandidate({ phoneTail: null, matchReason: 'date-of-birth' })]}
@@ -73,7 +77,7 @@ describe('DuplicateWarningDialog (F-6)', () => {
       />,
     );
 
-    expect(screen.getByText('No phone')).toBeInTheDocument();
+    expect(screen.getByText('No phone recorded')).toBeInTheDocument();
   });
 
   it('never renders a full phone number', () => {

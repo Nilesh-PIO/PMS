@@ -94,13 +94,18 @@ export function DuplicateWarningDialog({
           <ul className="duplicate-dialog__list">
             {likely.map((candidate) => (
               <li key={candidate.id} className="duplicate-dialog__item">
+                {/* No onSelect: merge tooling is Phase 2, so these rows identify and nothing more.
+                    The shared row is a button only when a caller hands it a select handler. */}
                 <PatientPickerRow
+                  id={candidate.id}
                   fullName={candidate.fullName}
                   phoneTail={candidate.phoneTail}
                   ageDisplay={candidate.ageDisplay}
+                  gender={candidate.gender}
                   dateOfBirth={candidate.dateOfBirth}
                   lastVisitDate={candidate.lastVisitDate}
                   status={candidate.status}
+                  isMerged={candidate.mergedIntoPatientId !== null}
                 >
                   <p className="duplicate-dialog__reason">{describeMatch(candidate)}</p>
                   {candidate.mergedIntoPatientId ? (
@@ -132,12 +137,15 @@ export function DuplicateWarningDialog({
               {household.map((candidate) => (
                 <li key={candidate.id} className="duplicate-dialog__item">
                   <PatientPickerRow
+                    id={candidate.id}
                     fullName={candidate.fullName}
                     phoneTail={candidate.phoneTail}
                     ageDisplay={candidate.ageDisplay}
+                    gender={candidate.gender}
                     dateOfBirth={candidate.dateOfBirth}
                     lastVisitDate={candidate.lastVisitDate}
                     status={candidate.status}
+                    isMerged={candidate.mergedIntoPatientId !== null}
                   />
                 </li>
               ))}

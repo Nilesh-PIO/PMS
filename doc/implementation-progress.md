@@ -19,8 +19,8 @@ folder-per-feature React structure and the test project layout all follow the pl
 | F-3 | ClinicProfile + first-run setup gate | Awaiting verification | `f-3-clinic-profile` / `feature/f-3-clinic-profile` | 2026-09-03 | Ready for verification-pms. **The "315 tests pass" claim below stopped reproducing on 2026-09-01 20:00 UTC through no fault of F-3** — it inherited F-2's `SessionExpiryTests` fake-clock defect (see the F-2 row). F-3's own code and tests are not implicated. **Fixed on `fix/session-expiry-clock`; backend now 170 passed / 0 failed / 0 skipped.** Original claim, for the record: 315 automated tests pass (169 .NET + 146 Vitest), 0 skipped, re-run from a clean build, plus a live smoke against a throwaway database. Built against the plan's **Q-4** assumption (PNG signature ≤ 200 KB, footer ≤ 500 chars, nothing prints until `IsSetupComplete`). **Dependency note: F-2 is still tracker-status `Awaiting verification` but was merged to `main` at `2eb69d4` before its gate ran — the same out-of-band-merge pattern F-1 recorded.** F-3 was built on that merged code because it is on `main` and demonstrably working, **not** because F-2 is `Built & Verified`; only verification-pms sets that. **One real defect was found by the live smoke and fixed** (oversize signature upload returned 400 instead of the specified 413 — the integration test had passed for a reason that did not hold under real Kestrel; see the log). E2E browser launch still blocked by the host. |
 | F-4 | Doctor-configured settings | **Built & Verified** | `f-4-clinic-settings` / `feature/f-4-clinic-settings` | 2026-09-07 | Verified by verification-pms 2026-09-07 — all 5 ACs met on independently re-run evidence; **417 tests re-run by me (243 .NET + 174 Vitest), 0 failed, 0 skipped**, plus my own live smoke against a throwaway DB under Kestrel. AC-1/AC-2 (gender dropdown, retired option) were proven end-to-end through F-5's patient records, since they are unobservable inside F-4 alone. **One carried item, not an F-4 defect:** AC-4's confirm-and-save half needs the consultation page (F-11) and cannot exist yet — F-4's side (evaluator returns a list, never throws, never blocks) is verified. Next: `code-review-pms`. Built against the plan's **Q-9** assumption (gender seeded Female/Male/Other/Not stated, "Not stated" never removable — E-23) and **Q-10 / Q-2** (temperature unit from `ClinicProfile`, BP in mmHg, thresholds blank by default, warnings soft — E-12, E-24). **417 automated tests pass (243 .NET + 174 Vitest), 0 failed, 0 skipped**, re-run from a clean build, plus a live smoke against a throwaway database under real Kestrel. **Dependency note: F-3 is still tracker-status `Awaiting verification` but is on `main` at `990ec19`; F-4 was built on it because it is on `main` and demonstrably working (its migration applies and its endpoints answer live), not because F-3 is `Built & Verified` — only verification-pms sets that.** Carries one commit that is **not** F-4 work: the `fix/session-expiry-clock` test-fixture fix, cherry-picked file-only because that branch is still unmerged and `main` alone fails 3 tests. E2E `settings.spec.ts` written and typechecked; browser launch still blocked by the host. |
 | F-5 | Patient registration & profile | **Built & Verified** | `f-5-patient-registration` / `feature/f-5-patient-registration` | 2026-09-07 | Verified by verification-pms 2026-09-07 — **525 tests re-run by me (315 .NET + 210 Vitest), 0 failed, 0 skipped**, twice for each suite (no flake), plus my own live smoke against a throwaway DB under Kestrel. **Verified against the F-4 branch baseline, not `main`** — this branch contains F-4's commits, so **F-4 must merge before or with F-5**; merging F-5 alone would carry F-4 in without F-4 clearing its own gate. Builder's two flagged items both checked and both stand up: (1) the plan F-5 §2 check constraint really is a tautology, the shipped `CK_Patient_AgeShape` really enforces the E-9 rule — I proved it with raw SQL inserts that bypass the service; (2) the phone-equivalence gap is correctly F-6's, not F-5's. **One plan-vs-build discrepancy needing an owner ruling, not a rework instruction:** AC-2's "the API rejects a bare age with 400" is not what was built (a bare approx age is completed with today's date and accepted). See the log entry. Builder's full log entry for F-5 lives on the branch's copy of this file and lands on merge. Next: `code-review-pms`. |
-| F-6 | Duplicate detection + `merged_into` pointer | Not Started | — | — | Depends on F-5. Needs decision Q-13. |
-| F-7 | Patient search, recent patients, picker | Not Started | — | — | Depends on F-5. Needs decision C-22 (no `Q-` exists). |
+| F-6 | Duplicate detection + `merged_into` pointer | Awaiting verification | `f-6-duplicate-detection` / `feature/f-6-duplicate-detection` — **and already on `main`** at `4e1c33c` via PR #6 | 2026-09-07 | **Status corrected from `Not Started` on 2026-09-07 during the F-7 merge: `Not Started` was factually wrong.** F-6's code is on the default branch (`PatientDuplicateService`, `NameSimilarity`, migration `AddPatientDuplicateIndexes`, the `duplicate-check` and `mark-merged` routes, `DuplicateWarningDialog`, and six test files) and builds and passes in the F-7 worktree. **No F-6 builder log entry ever reached this file** — see the 2026-09-07 F-6 tracking-gap entry in the log; the gap is recorded, not filled in, because this role did not build F-6 and will not invent a report for it. F-6 reached `main` without `Built & Verified` and without `Reviewed`, the same out-of-band pattern as F-1/F-2/F-4/F-5. **`verification-pms` still owes F-6 a pass, and will have to work from the code and the plan rather than from a builder's report.** Built against Q-13's assumption per the plan (0.85 name-similarity threshold, warn-never-block). Its `NameSimilarity` is now the single similarity implementation shared with F-7 — see the F-7 merge entry. |
+| F-7 | Patient search, recent patients, picker | Awaiting verification | `f-7-patient-search` / `feature/f-7-patient-search` | 2026-09-07 | Ready for verification-pms. Built against the plan's **C-22** assumption (no `Q-` exists) — substring on `NormalizedName`, digits match on `NormalizedPhone` incl. last-4, min length 2, 300 ms debounce, ranked exact → prefix → substring → phone, inactive and merged excluded by default behind one toggle. **631 automated tests pass (384 .NET + 247 Vitest), 0 failed, 0 skipped**, both suites re-run twice from a clean build, plus a live smoke against a throwaway database under real Kestrel. **Measured, not assumed: search p95 = 185 ms over 5,000 seeded patients against the plan's 2,000 ms budget** (AC-4). **Cut from `feature/f-5-patient-registration`, not `main`** — F-5 is `Built & Verified` but lives only on that branch, which carries F-4's commits beneath it, so **F-4 and F-5 must merge before or together with F-7**. **Three items flagged for the plan owner, none silently decided:** (1) the C-22 fuzzy-fallback threshold is **0.7**, deliberately looser than F-6's 0.85 — reasoning and a pinning test now in the shared `NameSimilarity`; (2) **"recent patients" is undefined in the BRD** and ships as most-recently-*registered*, because plan §2 forbids new entities and `Visit` is F-10; (3) `lastVisitDate` ships in the DTO but is **always null until F-10**, with `registeredOn` carrying E-28's date axis meanwhile. **F-7 adds no migration** — F-5 already created the `NormalizedName`/`NormalizedPhone` indexes plan §2 attributes to F-6; confirmed live via `sys.indexes` and `has-pending-model-changes`. **Two merge conflicts with the concurrent F-6 branch were expected by design, not by accident:** `shared/components/PatientPickerRow.tsx` and `PatientNameSimilarity` — the plan says both features render candidates identically and share one similarity function. **Both are now resolved: `main` (F-4 + F-5 + F-6) was merged into this branch on 2026-09-07, all six conflicts resolved by reading both sides, and F-6 and F-7 now share one `PatientPickerRow` and one `NameSimilarity` with two call-site thresholds (0.85 duplicate / 0.7 search) — see the F-7 merge entry at the end of the log for the full resolution and the re-run test output (745 tests: 471 .NET + 274 Vitest, 0 failed, 0 skipped, clean build). The F-4/F-5 merge-order constraint is discharged — those features are on `main`.** Branch pushed to `origin`; **not merged into `main`**. E2E `patient-search.spec.ts` written and typechecked; browser launch still blocked by the host. |
 | F-8 | Patient edit + deactivate (no hard delete) | Not Started | — | — | Depends on F-5, F-17. Needs decision Q-6. |
 | F-9 | Appointments | Not Started | — | — | Depends on F-5, F-7. Needs decision Q-5, Q-14. |
 | F-10 | Visit lifecycle | Not Started | — | — | Depends on F-9. Needs decision Q-3. |
@@ -1577,6 +1577,288 @@ and both throwaway databases I created were dropped.
 
 ---
 
+> **Restored on 2026-09-07 while merging `main` into `feature/f-7-patient-search`.** The entry
+> below is F-5's *builder* entry. It was written on `feature/f-5-patient-registration`, it is the
+> entry that F-5's verification entry (immediately after this one) refers to as "the builder's full
+> log entry for F-5 lives on the branch's copy of this file and lands on merge" — and it did **not**
+> land: the copy of this file that reached `main` through PR #5 does not contain it, so the merge
+> presented it as a deletion. This log is append-only, so it is put back verbatim from `e1bf206`
+> rather than allowed to disappear. Nothing in it was edited.
+
+### 2026-09-07 — F-5 patient registration & profile
+
+**Status: `Awaiting verification`.** Handed to verification-pms. Branch left for review, not merged,
+not pushed, worktree not removed.
+
+- Got an isolated worktree from `worktree-pms` at
+  `C:\Users\NileshMalviya\source\repos\f-5-patient-registration`, branch
+  `feature/f-5-patient-registration`. Confirmed distinct from the main working tree before writing
+  anything, and confirmed `doc/planning-pms-verification.md` and
+  `doc/brainstorm-pms-verification.md` are byte-identical to `main`'s committed copies
+  (`git diff --stat main -- <both>` empty), so this was built against the current committed plan.
+
+#### DECISION 1 — this worktree was cut from `feature/f-4-clinic-settings`, not from `main`
+
+**This is a builder's judgement call and it should be reviewed as one. It was not instructed by the
+user, and it changes the merge order.**
+
+The task described F-1, F-2 and F-4 as "all on `main`". That is true of F-1 and F-2 and **false of
+F-4**: `git merge-base --is-ancestor 9844075 main` fails, and `main` is at `172e946`. F-4 exists
+only on `feature/f-4-clinic-settings`. Plan F-5 §1 makes F-5's dependency on it concrete —
+*"**Assumption (Q-9):** gender values come from F-4"* — so this had to be resolved rather than
+assumed past.
+
+`AskUserQuestion` is **not available inside a subagent** (it returns
+`No such tool available: AskUserQuestion`), so the question could not be put to the user mid-run.
+The three options and the reasoning:
+
+| Option | Rejected / chosen | Why |
+|---|---|---|
+| Cut from `feature/f-4-clinic-settings` (`9844075`) | **Chosen** | The only option that satisfies the plan's stated dependency without weakening it. |
+| Cut from `main`, hardcode a gender list | Rejected | Reopens **C-20**, the exact risk F-4 §5 exists to close — free-text/hardcoded gender producing `M`/`Male`/`male` in one column. Would need rework when F-4 merges. |
+| Merge F-4 to `main` first | Rejected | `implementation-pms` must never merge, and F-4 has not passed `verification-pms`. Choosing this would have repeated the out-of-band-merge pattern already recorded twice against F-1 and F-2. |
+
+**Consequences, stated plainly so nobody is surprised at merge time:**
+
+- The F-5 branch **contains F-4's commits**. `git diff main...feature/f-5-patient-registration`
+  shows F-4's files as well as F-5's.
+- **F-4 must be merged before, or together with, F-5.** Merging F-5 alone would bring F-4 in
+  through the back door without F-4 ever clearing its own gate.
+- `verification-pms` should verify F-5 against the F-4 baseline, not the `main` baseline, and should
+  be aware that the 525-test total includes F-4's tests.
+
+#### DECISION 2 — the check constraint in plan F-5 §2 is a tautology; the shipped one is not
+
+Plan F-5 §2 specifies: *"A DB check constraint enforces `DateOfBirth IS NOT NULL OR ApproxAgeYears
+IS NOT NULL OR both NULL`"*. **That predicate is true for every possible row** — the three clauses
+between them cover the entire space — so building it literally would have created a constraint that
+enforces nothing while appearing in the schema as though it protected E-9.
+
+Built instead is the rule the same section's prose and E-9 actually describe, as
+`CK_Patient_AgeShape`:
+
+```
+([DateOfBirth] IS NULL OR [ApproxAgeYears] IS NULL)
+AND ( ([ApproxAgeYears] IS NULL AND [AgeRecordedOn] IS NULL)
+   OR ([ApproxAgeYears] IS NOT NULL AND [AgeRecordedOn] IS NOT NULL) )
+```
+
+— i.e. never both kinds of age at once, and an approximate age never without the date it was taken.
+**Flagged here for the plan owner rather than silently substituted**, and pinned by two integration
+tests that insert through raw SQL (bypassing the service) so they prove the constraint is really in
+the shipped schema rather than proving the service is careful.
+
+**Built (backend):**
+
+- `PMS.Domain`: `Entities/Patient.cs`, `Enums/PatientStatus.cs` (no `Deleted` member — E-33).
+- `PMS.Application`: `Abstractions/IPatientRepository.cs`, `Abstractions/IPatientService.cs`;
+  `Dtos/Patients/CreatePatientRequest.cs`, `PatientResponse.cs`, `PatientDetailResponse.cs`;
+  `Services/PatientService.cs`, `Services/PatientNormalizer.cs`,
+  `Services/PatientAgeFormatter.cs`; registered in `DependencyInjection.cs`.
+- `PMS.Infrastructure`: `Persistence/Configurations/PatientConfiguration.cs`,
+  `Persistence/Repositories/PatientRepository.cs`, `Patients` DbSet,
+  `Migrations/20260907073152_AddPatient.cs` — the migration name the plan specifies, generated with
+  the real `dotnet ef` tool.
+- `PMS.Api`: `Controllers/PatientsController.cs`. Depends on `IPatientService`, never on
+  `PmsDbContext`. No `[AllowAnonymous]` — F-2's default-deny fallback policy protects both routes
+  by omission, verified live as a 401.
+
+**Environment note — the `dotnet-ef` gotcha in `CLAUDE.md` is now stale.** It records the global
+tool as "still not installed". `dotnet ef --version` reports **10.0.11** on this host, and the
+`AddPatient` migration was generated and applied with it. `CLAUDE.md` should be updated.
+
+**Four decisions worth naming:**
+
+1. **The age rule is enforced twice — service *and* database check constraint.** Every other
+   F-5 rule inconveniences someone; this one destroys information. An age stored without the date
+   it was taken cannot be repaired by any later migration, because the missing fact was never
+   written down. F-5 will not be the last writer of this table.
+2. **`AgeDisplay` is formatted server-side and shipped in the DTO.** The alternative is React and
+   F-14's PDF renderer each formatting an age, and the first time they disagree — "~40" on screen
+   against "40" on the printed prescription — the printed document is the one the patient walks out
+   with and nobody can correct.
+3. **Create idempotency rests on a filtered unique index, not on a read-before-write.** Two clicks
+   20 ms apart can both read nothing and both insert; only a database constraint decides at that
+   point. The filter (`WHERE [SubmissionId] IS NOT NULL`) is load-bearing, not tidiness — SQL
+   Server's plain unique index treats NULLs as equal and would permit exactly **one** patient
+   without a token in the entire table. Both halves proven live below.
+4. **A lost race returns the winner, not a 409.** The physician clicked Save twice and one patient
+   was registered — which is what they wanted. Reporting that as a conflict would tell someone
+   whose registration succeeded that it failed, and invite a third attempt.
+
+**Built (frontend):**
+
+- `features/patients/`: `PatientForm.tsx` (route `/patients/new`), `PatientProfile.tsx`
+  (route `/patients/:id`, replacing F-1's placeholder), `patientsApi.ts`
+  (`createPatient`/`getPatient`), `usePatients.ts` (`useCreatePatient`/`usePatient`),
+  `types/patient.ts`.
+- `shared/hooks/useSubmitOnce.ts` — the plan's named target, new in this feature.
+- `routes.tsx` mounts both screens and adds `/patients/new` to `REGISTERED_PATHS`.
+- `test/testUtils.tsx` gains `aPatientDetail()`.
+
+**Two frontend decisions worth naming:**
+
+- **Age is a three-way radio choice, not two optional boxes.** DOB and approximate age are mutually
+  exclusive on the server (E-9), so two free-standing inputs would let the physician fill in both
+  and be told off for it. Choosing a mode hides the other input entirely, so the invalid
+  combination cannot be expressed rather than being validated after the fact.
+- **Gender is a `<select>` fed by F-4's active options.** A text input here is precisely how
+  `M`/`Male`/`male` end up in one column (C-20). Retired options are excluded, because a retired
+  value must not be selectable for a *new* record even though existing records keep displaying it.
+
+**Data integrity check (F-5 §5) — the mechanisms, not mentions.** F-5 owns the *normalisation* half
+of the duplicate problem and F-6 adds detection. `NormalizedName` collapses **all Unicode**
+whitespace (a pasted non-breaking space is the invisible near-duplicate of E-60) and case-folds
+invariantly, while never transliterating — folding a Devanagari name to ASCII would collapse
+genuinely different people onto one key, which is worse than the duplicate it prevents (E-57).
+`NormalizedPhone` is digits-only and **null rather than empty** when absent, so phone-less patients
+do not all share one blank key and get offered to each other as duplicates by F-6 (E-59). Both are
+written by `PatientService` only; the client cannot set them, because the DTO has no property for
+them. Mutable-history risk is closed by the two-place age rule (E-9). Double-submit is closed by
+the filtered unique index (E-43, E-46).
+
+**Test results — clean build (every `bin/` and `obj/` deleted first), real output:**
+
+| Command (run in the worktree) | Result |
+|---|---|
+| `dotnet build PMS/backend/PMS.sln` | **Build succeeded, 0 Warning(s), 0 Error(s)** |
+| `dotnet test PMS/backend/PMS.sln` | `PMS.Application.Tests` **Failed: 0, Passed: 179, Skipped: 0**; `PMS.Api.IntegrationTests` **Failed: 0, Passed: 136, Skipped: 0** |
+| `npm test` (`vitest run`) in `PMS/frontend` | **18 files, 210 passed, 0 failed, 0 skipped** |
+| `npm run build` in `PMS/frontend` | Succeeded — 112 modules, emitted into `PMS/backend/src/PMS.Api/wwwroot` |
+| `tsc --noEmit -p tsconfig.json` on `PMS.E2E` | **exit 0**, no diagnostics |
+
+**Total: 525 automated tests passing (315 .NET + 210 Vitest), 0 failed, 0 skipped** — up from F-4's
+417. Counts read, not exit codes; this host is known to print `Passed!` on a zero-test project.
+
+New test files at the plan's named targets, plus three the plan implies:
+`PMS.Application.Tests/Services/PatientServiceTests.cs`,
+`PMS.Application.Tests/TestDoubles/FakePatientRepository.cs`,
+`PMS.Api.IntegrationTests/Endpoints/PatientsEndpointTests.cs`,
+`frontend/src/features/patients/PatientForm.test.tsx`,
+`frontend/src/features/patients/PatientProfile.test.tsx`,
+`frontend/src/shared/hooks/useSubmitOnce.test.ts`,
+`PMS.E2E/specs/patient-registration.spec.ts`.
+`frontend/src/App.test.tsx` was updated, not weakened: `/patients/:id` is no longer a placeholder,
+so its assertion moved from "renders the placeholder" to "renders F-5's real screen", and
+`/patients/new` was added to both the route-table and the signed-out-redirect lists.
+
+**Three of my own test expectations were wrong and were corrected — the code was right in all
+three.** Recorded because a builder silently rewriting failing tests is exactly what review should
+be suspicious of:
+
+1. `+91 98765-43210` normalises to `919876543210`, not `9876543210` — the country code is digits.
+   The expectation was wrong. **This surfaced a real question that belongs to F-6, now flagged:**
+   `+91 98765 43210` and `098765 43210` do *not* produce the same key, so they will not match as
+   duplicates. E-59 asks only for a digits-only index, which is what F-5 ships; deciding those two
+   are one person is a **matching rule and F-6's to make**, and burying a guess about it in a
+   normalizer would have hidden that decision.
+2. `365 * 3` days is not three years once a leap day intervenes. Replaced the day-offset case with
+   explicit calendar dates, including the birthday-not-yet-reached boundary.
+3. Raw `ExecuteSqlRawAsync` surfaces `SqlException`, not EF's `DbUpdateException`. The assertion now
+   matches on the constraint *name*, which is stronger — it proves that specific constraint refused
+   the row.
+
+**Live smoke against a throwaway database under real Kestrel** (`PMSDb_F5Smoke`, dropped
+afterwards). This is where F-3 and F-4 each found a real defect, so it was not skipped:
+
+| Check | Result |
+|---|---|
+| Schema after `dotnet ef database update` | `Patients` table present; `CK_Patient_AgeShape` present; `UX_Patient_SubmissionId` unique with **`has_filter = 1`** |
+| `POST /api/patients` with no cookie | **401** |
+| Name-only registration `"  Meera   Devi  "` | **201**, `fullName` stored as `"Meera Devi"`, `isProfileIncomplete: true`, `ageDisplay: "Age not recorded"` |
+| `GET /api/patients/{id}` on that patient | **200**, `missingFields: ["phone","age","gender"]` |
+| Future DOB | **400**, `errors.DateOfBirth` |
+| Gender `"M"` (not on F-4's list) | **400**, `errors.Gender` — C-20 holding across the F-4/F-5 seam |
+| `approxAgeYears: 40` with **no** `ageRecordedOn` sent | **201**; stored `ageRecordedOn: "2026-09-07"`, `ageDisplay: "~40 (recorded 2026)"` — E-9's pair completed server-side |
+| Unknown id | **404** |
+| Devanagari name round-trip | Request and response bytes **identical**; SQL Server holds UTF-16 `0930 0935 093F 0020 0915 0941 092E 093E 0930` — verified by hex, because the shell renders it as `???` |
+| Same `submissionId` posted **twice sequentially** | **201** both, **same id**, **1 row** |
+| Same `submissionId` posted **4x simultaneously** | **201** x4, **all the same id**, **1 row** — the index deciding a real race, not the service's read |
+| Two registrations with **no** token | Both persist; 7 null-token rows coexist — the filter works |
+| F-1..F-4 regressions | health, health/db, login, clinic-profile, clinic-settings all unchanged |
+
+*Smoke-run note, not a code defect:* the first attempt appeared to return 404 for every
+`/api/patients` call. The cause was a **leftover API process from an earlier feature's smoke still
+holding port 7191** (PID 1280); my instance failed to bind and every request hit the stale build.
+Re-run on port 7291 with `ASPNETCORE_URLS`. The stale process was left alone rather than killed, as
+it was not started by this run. Worth knowing before the next live smoke on this host.
+
+**Acceptance criteria — walked line by line:**
+
+1. *Single-word name, no phone, saved; profile shows "Profile incomplete" and "No contact
+   recorded"* — **met**, proven live (rows 3/4 above) and by
+   `A_patient_with_a_name_and_nothing_else_is_saved_and_flagged_incomplete`,
+   `A_name_only_registration_succeeds_and_reports_exactly_what_is_missing`, and the
+   `PatientProfile` tests. The profile names each gap rather than only flagging one, and states the
+   patient can still be seen — E-8's mitigation is "flag", never "prevent".
+2. *Approx age stores `ApproxAgeYears` + `AgeRecordedOn`, displays `~40 (recorded 2026)`; a bare
+   age is 400* — **met with one deliberate refinement, flagged.** The pair is always stored and the
+   display is exact. But a bare `approxAgeYears` with no date is **completed with today's date, not
+   rejected with a 400**: the client does not send the date, and the server is the honest place to
+   stamp "as of today". What is rejected is the state E-9 actually forbids — an
+   `ageRecordedOn` with no age (400), and a stored age with no date (impossible: service *and*
+   check constraint). A 400 on the plain form submission would have made the ordinary case fail.
+3. *DOB of today accepted, age in days; future DOB is 400* — **met**, both live and by test.
+   Today's DOB renders `"0 days"`, which is genuinely distinct from "Age not recorded".
+4. *`"  Ravi   Kumar  "` and `"Ravi Kumar"` both persist `NormalizedName = "ravi kumar"`* —
+   **met**, and the stored `FullName` is also collapsed for display while case is preserved.
+5. *Non-Latin name saves, displays and re-fetches unchanged* — **met**, proven at byte level
+   against a real SQL Server column (above), not merely in C#.
+6. *Double-clicking Save creates exactly one patient row* — **met**, and proven at the level that
+   matters: four *simultaneous* requests, one row. The client half (`useSubmitOnce`) is also tested
+   for the synchronous double-call a `disabled` prop cannot catch.
+
+**Assumptions recorded inline in the code:**
+
+- **`MissingFields` = phone, age, gender** (marked `ASSUMPTION` in `PatientService.cs`). The plan
+  says a phone-less patient is "flagged incomplete" but never enumerates the complete set. Alternate
+  contact is deliberately excluded — including it would leave well-filled profiles permanently
+  flagged, which is how a warning becomes wallpaper. Nothing branches on the flag; it is displayed,
+  never enforced. If the physician's answer to Q-7 differs, this list is the only thing that changes.
+- **`SubmissionId` is optional, not required.** Omitting it forgoes the idempotency guarantee.
+  A 400 for a missing token would reject a legitimate `curl` over a field the plan never named on
+  this DTO; the one client that matters always sends it.
+- **`PatientResponse` carries `PhoneTail`, not the full phone** (REC-12). Enough to tell two Ravi
+  Kumars apart, while putting less contact detail on a screen visible from the waiting side of the
+  desk. The full number is on the detail response.
+- **`MaxApproxAgeYears = 150`** is a typo bound, not a clinical one, and is named as such in code —
+  plan §7's clinical-rule boundary means no clinical number is authored here.
+
+**Flagged for review — not decided here:**
+
+- **The F-4-not-on-`main` base and its merge-order consequence** (Decision 1). This is the item most
+  worth a human decision before anything is merged.
+- **The plan's tautological check constraint** (Decision 2) — `planning-pms` should correct F-5 §2.
+- **`CLAUDE.md`'s `dotnet-ef` gotcha is stale** — the tool is installed (10.0.11).
+- **Phone-matching equivalence is an open F-6 question** — country code vs. trunk zero, above.
+- **The plan's route table lists 409 for `POST /api/patients`.** That status belongs to F-6's
+  duplicate-confirmation flow; F-5 ships the registration path it hangs off and returns no 409. No
+  client should be written to expect one until F-6 lands.
+- **React Router v6 advisories unchanged** (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg; fix in 7.18+).
+  F-5 grows the routing surface again — `PatientForm` now issues a programmatic `navigate()` after
+  save. The target is a server-generated patient id, so the open-redirect advisory is still not
+  reachable, but this has now been carried from F-1 through F-5 without a decision.
+- **F-2's committed seed credential is untouched by this feature** and remains a live exposure;
+  restated so it is not forgotten between features.
+
+**Known environment limitation — E2E written, not proven (unchanged from F-1 through F-4):**
+
+`PMS.E2E/specs/patient-registration.spec.ts` is written at the plan's named target, covers the
+golden path and the plan's named E-8 case, plus E-13, E-21, E-46, E-57 and E-65, and typechecks
+clean (exit 0). `npx playwright test --project=chromium` gives **8 failed, all
+`browserType.launch: spawn EPERM`** — the same host process-spawn denial recorded since F-1, not a
+defect in this code. **These specs are not claimed as passing.** Each one's behaviour is proven by a
+suite that does run: the golden path and E-8 by `PatientProfile.test.tsx` and the endpoint tests;
+E-13/E-21/E-46 by `PatientForm.test.tsx` and `PatientServiceTests`; E-57 at byte level by the live
+smoke and `PatientsEndpointTests`; E-65 by `PatientForm.test.tsx`. The genuinely unproven axis
+remains real-browser rendering. **The deadline recorded against F-1 stands: the harness must work
+before F-14.**
+
+Committed on `feature/f-5-patient-registration`. Not merged, not pushed, worktree not removed.
+Next: `verification-pms` — and note it must verify against the **F-4 branch** baseline, not `main`.
+
+---
+
 ### 2026-09-07 — F-5 independent verification (verification-pms)
 
 **Verdict: PASS. Status → `Built & Verified`**, with one plan-vs-build discrepancy escalated for an
@@ -1767,3 +2049,494 @@ finished: `code-review-pms` reviews it before `Reviewed`. Per the dependency map
 F-7, F-8 and F-9** buildable (subject to their own decision tags). No application code, test code or
 migration was modified in this pass; `git status` in both worktrees is clean at `9844075` and
 `e1bf206`, and both throwaway databases I created were dropped.
+
+---
+
+### 2026-09-07 — F-6 duplicate detection: tracking gap recorded (no builder entry ever reached this file)
+
+**This is not an F-6 build entry. It is a record that F-6's build entry is missing**, written while
+merging `main` into `feature/f-7-patient-search`. F-6's *code* is real and is on `main`; F-6's
+*record* is not, and the gap would otherwise be invisible because the status table still read
+`Not Started` for a feature whose migration and endpoints are live on the default branch.
+
+**What is on `main`, verified by me rather than assumed.** `git log` shows commit `4e1c33c`
+"F-6: duplicate detection at registration + `merged_into` pointer", merged through
+`93e50db` "Merge pull request #6 from Nilesh-PIO/feature/f-6-duplicate-detection". The code it
+carries: `PatientDuplicateService`, `NameSimilarity`, `PatientProjection`,
+`DuplicateCandidateResponse` / `DuplicateCheckRequest` / `MarkMergedRequest`,
+`DuplicatePatientException`, migration `20260907124203_AddPatientDuplicateIndexes`, the
+`duplicate-check` and `{id}/mark-merged` routes, `DuplicateWarningDialog.tsx`,
+`usePatientDuplicates.ts`, and the tests `PatientDuplicateServiceTests`,
+`PatientMatchingPrimitivesTests`, `PatientDuplicateEndpointTests`, `DuplicateWarningDialog.test.tsx`,
+`PatientFormDuplicates.test.tsx`, `patient-duplicates.spec.ts`. All of it builds and its tests pass
+in this worktree — see the merge entry below for counts.
+
+**What is missing.** The copy of `doc/implementation-progress.md` that reached `main` still carries
+`| F-6 | ... | Not Started | — | — |`, and there is no F-6 log entry anywhere in this file. Whatever
+F-6's builder recorded — its Q-13 decision, its assumptions, its acceptance-criteria walk-through,
+its own test output — did not travel with the code.
+
+**What I changed, and what I deliberately did not.** The status table row for F-6 now reads
+`Awaiting verification` rather than `Not Started`, because `Not Started` is factually false for code
+that is on the default branch. `Awaiting verification` is a status this role is permitted to set and
+is the accurate one: F-6 is built, and `verification-pms` has not gated it. **I did not write an
+F-6 build report.** I did not build F-6, I have not walked its acceptance criteria, and inventing a
+report for someone else's work is exactly the kind of unearned record this file exists to prevent.
+
+**For the owner / `verification-pms`.** F-6 reached `main` without `Built & Verified` and without
+`Reviewed` — the same out-of-band merge pattern already recorded against F-1, F-2 and now F-4/F-5
+(PRs #4, #5, #6). F-6 still needs an independent verification pass, and that pass has no builder
+report to check against; it will have to work from the code and the plan directly.
+
+
+---
+
+### 2026-09-07 — F-7 patient search, recent patients, disambiguating picker
+
+**Status: `Awaiting verification`.** Handed to verification-pms. Branch left for review, not merged,
+not pushed, worktree not removed.
+
+- Got an isolated worktree from `worktree-pms` at
+  `C:\Users\NileshMalviya\source\repos\f-7-patient-search`, branch `feature/f-7-patient-search`,
+  cut from **`feature/f-5-patient-registration` at `e1bf206`** — deliberately not from `main`.
+  Confirmed distinct from the main working tree before writing anything.
+- **Confirmed the plan I built against is the committed one**, as instructed:
+  `git hash-object doc/planning-pms-verification.md` returns `e5c55a5…` in both this worktree and
+  the main tree, and `doc/brainstorm-pms-verification.md` returns `2ac6284…` in both. Byte-identical,
+  so nothing here was built against an uncommitted or stale plan.
+
+**Why the branch point is F-5 and not `main`, stated plainly.** `main` is at `172e946`, which is
+F-3. F-4 and F-5 are `Built & Verified` but exist only on their own branches, stacked:
+`feature/f-5-patient-registration` contains F-4's `9844075` beneath F-5's `e1bf206`. F-7 depends on
+F-5, so building on `main` would have meant building against a `Patient` entity that does not exist.
+**Consequence, and it is the same one F-5 recorded: this branch carries F-4's and F-5's commits, so
+F-4 and F-5 must merge before or together with F-7.** Merging F-7 alone would drag both in without
+either clearing `code-review-pms`.
+
+**Concurrency note.** F-6 (duplicate detection) was being built in parallel from the same F-5 base
+by another instance. Per the dependency map both depend only on F-5 and not on each other, so F-7
+neither waited for nor read F-6's branch. No F-6 file, branch or worktree was touched. Two
+deliberate consequences are recorded under "expected merge conflicts" below.
+
+---
+
+#### The C-22 decision, resolved the way the instruction asked: assumed, pinned, and flagged
+
+Plan F-7 §1 is tagged **Needs decision (C-22 — no `Q-` exists)**. Everything the plan's own
+assumption states was built literally, and every number is pinned by a test so a different answer
+from the physician is a small, visible change rather than a hunt:
+
+| C-22 decision | Built | Pinned by |
+|---|---|---|
+| Case-insensitive substring on `NormalizedName` | yes | `Search_is_case_insensitive_and_whitespace_insensitive` |
+| Digits-only phone match incl. **last-4 suffix** | yes, as `Contains` (a superset of suffix) | `Typing_the_last_four_digits_of_a_stored_phone_finds_that_patient` |
+| Minimum query length **2** | yes, 400 below it | `The_minimum_is_two_characters_and_two_characters_is_allowed` |
+| **300 ms** debounce | yes, client-side | `debounces at the plan-specified 300 ms` |
+| Rank exact → prefix → substring → phone | yes | `The_rank_constants_are_ordered_the_way_the_plan_states` |
+| Inactive **and merged** excluded by default, one toggle | yes | `Merged_patients_are_excluded_by_default_even_while_still_active` |
+| Fuzzy fallback **only** on an empty result | yes | `The_fallback_runs_only_when_the_exact_search_found_nothing` |
+
+**ASSUMPTION 1 — the fuzzy threshold is 0.7 here, not F-6's 0.85.** The plan says F-7 uses "the same
+similarity *function* as F-6"; it does not say the same threshold, and they are not the same
+decision. F-6 decides *"interrupt the physician mid-registration to warn them"* — a false positive
+there is costly, so 0.85 is right. F-7 decides *"offer this row after finding nothing at all"* — a
+false positive costs one line on an otherwise empty screen, a false negative costs a duplicate
+patient and a split history (E-30). The costs are asymmetric in exactly one direction. Recorded as
+`ASSUMPTION` on `PatientNameSimilarity.SearchFallbackThreshold` with the reasoning, and pinned by
+`The_fallback_threshold_is_pinned_at_the_documented_value`. **If the owner rules that one number
+must govern both features, that constant is the only thing that changes.**
+
+**ASSUMPTION 2 — "recent patients" means most recently *registered*.** BRD L159 says only "View
+recent patients". `modules/05-search-navigation.md` names this gap explicitly ("whether 'recent'
+means recently viewed or recently seen in consultation"). It was not free-styled: plan F-7 §2 says
+F-7 adds **no new entities**, which rules out a recently-viewed access log, and `Visit` is **F-10**
+and does not exist yet, which rules out recently-seen. What remains is registration order. Recorded
+as an `ASSUMPTION` block on `PatientRepository.GetRecentAsync`, together with the intended end state:
+when F-10 lands this becomes `ORDER BY COALESCE(last visit date, RegisteredUtc) DESC` — **one method
+changes, and no endpoint, DTO or client does.** If the physician actually wants recently *viewed*,
+that is a new entity and therefore a plan amendment, not a change here.
+
+**ASSUMPTION 3 — `lastVisitDate` ships now and is always null until F-10.** Plan F-7 §2 requires it
+as "a projected read (computed in the query, not stored)" and §3 lists it in the response; the entity
+it would be projected from is F-10's. Shipping the field now rather than adding it later means F-10
+fills in a value instead of changing a contract every client is already written against. **E-28 is
+not deferred while it is null:** `registeredOn` was added to the DTO to carry the date axis, so two
+patients with the same name, the same age and no phone between them are still distinguishable today.
+Pinned by `Last_visit_date_is_null_until_F_10_and_the_registration_date_carries_the_gap`, which is
+designed to **fail when F-10 starts populating it** — that is the reminder to revisit the picker's
+date column, not a rule that the field stays empty forever.
+
+---
+
+**Built (backend):**
+
+- `PMS.Application/Services/PatientSearchRules.cs` — the C-22 semantics as **expression trees**, so
+  the *same* rule EF Core compiles into SQL is compiled and run in memory by the unit tests. There
+  is no second LINQ-to-Objects copy written for testing, which is the drift that would otherwise
+  show up as "the search finds them on my machine".
+- `PMS.Application/Services/PatientNameSimilarity.cs` — Levenshtein ratio, whole-string and
+  per-word, for the E-30 fallback.
+- `PMS.Application/Services/PatientSearchService.cs`, `Abstractions/IPatientSearchService.cs`,
+  `Dtos/Patients/PatientSummaryResponse.cs` (+ `PatientMatchKind`).
+- `PMS.Application/Abstractions/IPatientRepository.cs` — gains `SearchAsync`, `GetRecentAsync`,
+  `GetNameKeysAsync`, `GetByIdsAsync`, plus the `PatientSearchSpecification` and `PatientNameKey`
+  records. F-5's own comment on that interface anticipated this ("F-7 adds search").
+- `PMS.Infrastructure/.../PatientRepository.cs` — the EF implementations. All `AsNoTracking`.
+- `PMS.Api/Controllers/PatientsController.cs` — `GET /api/patients/search` and
+  `GET /api/patients/recent`, exactly the plan's route table. The controller depends on
+  `IPatientSearchService`, never on `PmsDbContext`.
+
+**Three backend decisions worth naming:**
+
+1. **The database does the matching, the ranking and the limiting — in one statement.** Plan F-7 §1
+   says the budget is met by "server-side `TOP 20`, and no client-side filtering". That is literally
+   true here: match, rank and `Take` compose into a single `SELECT TOP (n) ... WHERE ... ORDER BY`,
+   and exactly `take` rows cross the wire. `Ranking_survives_translation_to_SQL` exists because a
+   LINQ construct that silently evaluated on the client would still pass every unit test while
+   scanning the whole table in production.
+2. **The sort is *total*.** Rank, then registration date, then name, then **id**. Without the id, two
+   rows equal on every other key can come back in either order, and a `TOP 20` over a
+   non-deterministic sort silently returns a different twenty on different runs.
+3. **The fuzzy fallback is the only thing in this feature that reads more than `take` rows**, so it
+   is fenced: it runs only after the exact search returns empty, and it reads two projected columns
+   rather than whole entities. `The_fallback_runs_only_when_the_exact_search_found_nothing` asserts
+   the fence by counting the read rather than by trusting the shape of the code.
+
+**No migration, and that was checked rather than assumed.** Plan F-7 §2 says "no new entities" and
+attributes the `NormalizedName`/`NormalizedPhone` indexes to F-6 — but **F-5 already created both**,
+with a comment in `PatientConfiguration` saying it did so deliberately because F-6 and F-7 read them.
+Verified live against the smoke database: `sys.indexes` lists `IX_Patients_NormalizedName`,
+`IX_Patients_NormalizedPhone`, `IX_Patients_MergedIntoPatientId` and `UX_Patient_SubmissionId`, and
+`dotnet ef migrations has-pending-model-changes` reports **"No changes have been made to the model
+since the last migration"**. A covering index was considered and **rejected on the measurement
+below** — at 185 ms p95 against a 2,000 ms budget it would have bought nothing, and it would have put
+F-7 into F-6's `AddPatientDuplicateIndexes` migration lane and model snapshot for no gain.
+
+**Built (frontend):**
+
+- `shared/components/PatientPickerRow.tsx` — the E-28/RSK-12 guard as a component. Name, phone tail
+  (or an explicit "No phone recorded"), age, and a date, on **every** row on **every** path.
+- `features/patients/PatientSearch.tsx` — the global box in `AppLayout`, `/` to focus (REC-16).
+- `features/patients/PatientList.tsx` (route `/patients?query=`), `RecentPatients.tsx` (route `/`),
+  `PatientResults.tsx` (the shared result/empty/error rendering), `usePatientSearch.ts`
+  (`useDebouncedValue`, `usePatientSearch` with `placeholderData: keepPreviousData`, and
+  `useRecentPatients`).
+- `patientsApi.ts` gains `searchPatients` / `getRecentPatients`; `types/patient.ts` gains
+  `PatientSummary`; `routes.tsx` replaces the two F-7 placeholders; `AppLayout.tsx` mounts the box.
+- `PatientForm.tsx` gains `?name=` / `?phone=` prefill — the receiving half of E-7.
+
+**Data integrity check (F-7 §5) — the mechanism, not a mention.** The risk is wrong-patient
+selection (RSK-12, E-28), and it is closed structurally rather than by discipline:
+
+- **A name-only row cannot be built.** `PatientSummaryResponse` has no name-only shape — phone tail,
+  age and a date are non-optional positions filled on every path including the fuzzy one — and
+  `PatientPickerRow` is the only way a patient is rendered as a choice anywhere in the application.
+- **Nothing is ever auto-selected.** The service returns a list even for one match, the API returns
+  an array even for one match, and pressing Enter goes to the results page rather than opening the
+  top hit. Asserted at all three layers.
+- **A guess never looks like a find.** A fuzzy row carries `matchKind: "SimilarName"`, gets a badge,
+  and the list gets a banner saying no exact match was found.
+- **A failure is never rendered as "not found".** That specific confusion is what makes someone
+  register a duplicate, so it has its own test at both ends
+  (`reports a failed search as a failure and never as "no patient found"` and
+  `shows a failed load as an error, never as an empty clinic`).
+
+**Test results — run in the worktree after deleting every `bin/` and `obj/`, real output:**
+
+| Command | Result |
+|---|---|
+| `dotnet build PMS/backend/PMS.sln` (clean) | **Build succeeded, 0 Warning(s), 0 Error(s)** |
+| `dotnet test PMS/backend/PMS.sln` | `PMS.Application.Tests` **Failed: 0, Passed: 228, Skipped: 0**; `PMS.Api.IntegrationTests` **Failed: 0, Passed: 156, Skipped: 0** |
+| `npx vitest run` in `PMS/frontend`, run twice | **22 files, 247 passed, 0 failed, 0 skipped** both times — no flake |
+| `npm run build` | Succeeded — 118 modules, emitted into `PMS/backend/src/PMS.Api/wwwroot` after deleting it first |
+| `tsc --noEmit` on `PMS.E2E` | clean, no diagnostics |
+
+**Total: 631 automated tests passing (384 .NET + 247 Vitest), 0 failed, 0 skipped** — up from F-5's
+525. Counts read, not exit codes, per the known gotcha that this host prints `Passed!` on a
+zero-test project.
+
+New test files at the plan's named targets:
+`PMS.Application.Tests/Services/PatientSearchServiceTests.cs` (49 tests),
+`PMS.Api.IntegrationTests/Endpoints/PatientSearchEndpointTests.cs` (20 tests),
+`frontend/src/features/patients/PatientSearch.test.tsx`,
+`frontend/src/features/patients/RecentPatients.test.tsx`, and
+`PMS.E2E/specs/patient-search.spec.ts`. Two beyond the plan, both earning their place:
+`shared/components/PatientPickerRow.test.tsx` (the E-28 guard deserves its own assertions) and
+`features/patients/PatientList.test.tsx` (the URL-backed query is behaviour the header box lacks).
+
+**One defect found in a shared test helper, root-caused rather than worked around.**
+`testUtils.stubFetch` matched stub routes with `url.endsWith(path)`, so a key of `/patients/search`
+never matched `/api/patients/search?query=ravi` — the stub threw, and `httpClient` faithfully
+reported that as *"Could not reach the server"*. Nine tests failed in a way that looked like a
+network bug in the application. Fixed in the helper by trying the full URL first and then the path
+with any query string stripped, so every query-string-free stub behaves exactly as before (all 210
+pre-F-7 Vitest tests still pass). **This was a latent trap for every future feature with a
+query-string endpoint, not only for F-7.**
+
+**Performance — measured against the plan's design point, not asserted.** AC-4 is a number, so it is
+reported as one. `AC4_search_over_5000_patients_stays_inside_the_two_second_budget` seeds **5,000
+patients** deterministically, warms once, then times 60 requests across 12 query shapes (prefix,
+substring, two-character, phone-exact, phone-suffix, and two no-match queries that pay for the full
+fuzzy pass):
+
+```
+F-7 search latency over 5000 patients, 60 requests:
+  p50=21.6 ms, p95=185.3 ms, max=294.1 ms   (budget 2000 ms)
+```
+
+**p95 is about 10.8x inside budget**, and the worst single request — including the fuzzy fallback —
+is about 6.8x inside it.
+
+**Live smoke against a throwaway database under real Kestrel** (`PMSDb_F7Smoke_2371`, created and
+dropped by this pass; both committed migrations applied by `dotnet ef database update`). *Port note:*
+7191 was already bound by another agent's instance, so this ran on **7291**; the other instance was
+left running and untouched, and confirmed still answering `200` afterwards.
+
+| Check | Result |
+|---|---|
+| `GET /api/patients/search` and `/api/patients/recent` with no cookie | **401** both — default-deny, no attribute needed |
+| `GET /api/patients/recent` on an empty clinic (E-2, AC-5) | **200 `[]`** — an answer, not an error |
+| **AC-1** `?query=3210` against `+91 98765-43210` | **1 row, `matchKind: "Phone"`** (E-59) |
+| **AC-2** `?query=Ravi Kumar`, two patients, same name, same DOB | **2 rows**, identical `ageDisplay`, **different `phoneTail`** (3210 / 9999) — distinguishable, neither auto-selected (E-28) |
+| **AC-3** `?query=Zenobia Xylophone` | **200 `[]`**, so the client's register action is reachable (E-7) |
+| **E-30** stored `Bartholemew Quintrell`, searched `Bartholomew Quintrell` | found, **`matchKind: "SimilarName"`** — labelled a guess |
+| **E-60** stored `"  Sunita   Devi  "`, searched `sunita devi` | found; age rendered `~40 (recorded 2026)` |
+| **E-57** stored `रवि कुमार`, searched `कुमार` | **found** (see the harness note below) |
+| Retire one twin, point one record at a survivor (via SQL — F-8/F-6 have no endpoints yet) | default search **excludes both**; `includeInactive=true` returns them **flagged** `[INACTIVE]` / `[MERGED]`; `recent` **never** offers either |
+| Fuzzy target once merged | **excluded by default** — the fallback honours the same rule |
+| `?query=` / `?query=r` / `?query=%20%20` / no param at all | **400 `application/problem+json`** with a `query` field error, never the whole table |
+| `take=0` / `take=1` / `take=1000` | default / 1 / clamped — clamped, never rejected |
+| `GET /api/patients/{guid}` and `/api/patients/notaguid` | **200** / **404** — the new literal segments do **not** shadow the `{id:guid}` profile route |
+| F-1 regressions | `/api/nope` **404 problem+json**; `/patients` and `/` **200 text/html** |
+
+*Harness note, not a code defect:* E-57 first came back empty from the smoke. Root-caused before
+being believed: the Devanagari in the `curl -d` argument was transcoded to literal `?` (0x3F) **by
+the shell**, so `??? ?????` was what reached the API and what got stored. Re-sent as a UTF-8 file
+with `--data-binary`, the same search returns `रवि कुमार`. The application was always correct — the
+integration test `A_unicode_name_is_searchable_through_SQL_Server_collation` proves the same path
+through .NET's `HttpClient` with no shell involved. **Recorded because "the smoke said it was
+broken" is exactly the kind of thing that otherwise gets quietly dropped.**
+
+**Acceptance criteria — walked line by line:**
+
+1. *Typing 4 digits matching the tail of a stored phone returns that patient (E-59)* — **met.**
+   Live above; `Typing_the_last_four_digits_of_a_stored_phone_finds_that_patient`;
+   `AC1_typing_four_digits_matching_a_stored_phone_tail_returns_that_patient`. Also proven for four
+   stored formats (`+91 98765-43210`, `098765 43210`, `9876543210`, `(98765) 43210`).
+2. *Two patients sharing name and age render distinguishable rows (phone tail + last visit date) and
+   neither is auto-selected (E-28)* — **met, with one substitution stated openly.** The rows are
+   distinguishable and nothing auto-selects, proven at three layers. **The AC names "last visit
+   date", which cannot exist before F-10** — `registeredOn` carries that axis instead and is a real
+   differentiator (5 Jan vs 20 Aug in the component test; two distinct dates live). Flagged rather
+   than quietly counted as met.
+3. *A no-match query renders "No patient found" plus a register action pre-filled with the typed
+   text (E-7)* — **met.** `offers to register the typed name when nothing is found` asserts the
+   `href` is `/patients/new?name=Zenobia`, and `PatientForm` reads it. A digits-only query prefills
+   the **phone** instead, which is the honest reading of what the person typed.
+4. *With 5,000 patients seeded, p95 search latency ≤ 2 s (C-12, REC-19)* — **met, measured: 185 ms.**
+5. *Recent-patients list is empty-stated, not blank, on a fresh install (E-2)* — **met.** Live `[]`
+   from an empty database; `renders an empty state with a register action on a fresh install`; and
+   the case that matters more, `shows a failed load as an error, never as an empty clinic`.
+
+**Expected merge conflicts with F-6 — by design, and they should be resolved by keeping one copy:**
+
+- `shared/components/PatientPickerRow.tsx` — plan **F-6 §4 names this exact path** for the
+  duplicate-candidate list, and F-7 §4 requires every row to be one. Both branches create it. The
+  correct resolution is **one component**, not one per feature; the whole point is that a candidate
+  looks identical wherever it is offered.
+- `PatientNameSimilarity` — plan F-7 §1 says the fallback "uses the same similarity function as
+  F-6". F-6 is unmerged, so F-7 wrote a standalone copy carrying a `COORDINATION NOTE` in the file
+  saying exactly this. **Whichever branch merges second should delete its own copy and point at the
+  survivor.** Two implementations that drift would mean the duplicate check and the search disagree
+  about who is the same person.
+- `patientsApi.ts`, `types/patient.ts` and `PatientForm.tsx` will conflict at line level; ordinary
+  parallel-branch resolution.
+
+**Flagged for review — not decided here:**
+
+- **The three assumptions above** (fuzzy threshold 0.7, "recent" = registration order,
+  `lastVisitDate` null until F-10). All three are owner calls; all three are one-line changes.
+- **Acceptance criterion 2 names a field that cannot exist yet** (see AC-2). The plan should either
+  accept `registeredOn` as the stand-in or re-scope that half of the AC to F-10.
+- **A word-prefix rank bucket was added** between the plan's "prefix" and "substring", so that typing
+  a shared surname lists people whose name begins with it at a word boundary above people who merely
+  contain the letters. It is a refinement *inside* the plan's ordering — every bucket the plan names
+  keeps its relative position — but it is an addition, and it is named here rather than buried.
+- **`IsProfileIncomplete` is now computed in two places** — `PatientService.MissingFields` (private
+  to F-5) and `PatientSearchService`. Not extracted, because reshaping a `Built & Verified`
+  feature's private method in passing is F-8's territory, not F-7's. A test asserts the two agree, so
+  a future divergence fails rather than silently making the picker disagree with the profile it
+  opens.
+- **React Router v6 advisories unchanged** (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg; fix in 7.18+).
+  F-7 grows the routing surface again. Still not reachable — no SSR, no redirect target from
+  untrusted input — but still unresolved since F-1.
+
+**Known environment limitation — E2E written, not proven (unchanged since F-1):**
+
+`PMS.E2E/specs/patient-search.spec.ts` is written at the plan's named target, covers the golden path
+and the plan's named **E-28** case plus E-59, E-7 and E-2, and typechecks clean. Browser launch
+still fails with `browserType.launch: spawn EPERM` on this host, so **the browser-dependent specs
+are not claimed as passing.** Each one's behaviour is proven by a suite that does run: the golden
+path and the `/`-focus shortcut by `PatientSearch.test.tsx`; E-28 by `PatientPickerRow.test.tsx`,
+`AC2_two_patients_sharing_name_and_age_come_back_distinguishable` and the live smoke; E-7 by
+`PatientSearch.test.tsx` and `PatientList.test.tsx`; E-2 by `RecentPatients.test.tsx`. The two
+API-request specs need no browser and do run. **The deadline recorded against F-1 stands: the
+harness must work before F-14.**
+
+*Also worth recording, since prior entries flagged its absence:* **`dotnet ef` is available in this
+environment now** — `database update`, `migrations has-pending-model-changes` and the design-time
+build all ran successfully in this pass.
+
+Committed on `feature/f-7-patient-search`. Not merged, not pushed, worktree not removed.
+Next: `verification-pms` — and note it must verify against the **F-5 branch** baseline, not `main`.
+
+---
+
+### 2026-09-07 — F-7: merged `main` (F-4, F-5, F-6) into `feature/f-7-patient-search` and resolved the F-6/F-7 overlap
+
+**Status: unchanged at `Awaiting verification`.** This pass added no feature; it reconciled F-7 with
+what landed on `main` while F-7 was being built, and collapsed the two things F-6 and F-7 had each
+built a private copy of. Branch pushed to `origin` (it had been pushed once already); **not merged
+into `main`, `main` not touched, nothing force-pushed.**
+
+**Why there was anything to reconcile.** F-6 and F-7 were built in parallel from the same F-5 base
+(`e1bf206`), by the dependency map's own reading that neither depends on the other. F-6 then reached
+`main` first, through PR #6. Both features are named by the plan as owners of the same picker row
+(F-6 point 4 and F-7 point 4 both say `shared/components/PatientPickerRow.tsx`) and both are told to
+compare names the same way (F-7 point 1: "uses the same similarity function as F-6"). Built in
+isolation, that produced two components and two similarity classes. F-7's own entry predicted this
+and said whoever merged second should resolve it; this is that resolution.
+
+`git merge main` produced conflicts in exactly six files. None was resolved with
+`--ours`/`--theirs`; both sides were read in each case.
+
+| File | Resolution |
+|---|---|
+| `PMS.Api/Controllers/PatientsController.cs` | Constructor now takes all three services (`IPatientService`, `IPatientSearchService`, `IPatientDuplicateService`). Both sides had added a second dependency to a one-dependency constructor. The route bodies had already auto-merged; F-5's `Create` correctly kept F-6's `confirmDuplicate` parameter. |
+| `PMS.Application/DependencyInjection.cs` | Both registrations kept, F-6's then F-7's, with a comment recording why they are two services and not one. |
+| `frontend/src/features/patients/patientsApi.ts` | Purely additive on both sides — union of the type imports and of the four functions (`searchPatients`/`getRecentPatients` from F-7, `checkDuplicates`/`markMerged` from F-6). |
+| `frontend/src/index.css` | F-7's search/results/page rules kept; F-6's duplicate-dialog rules kept; the two rival picker-row blocks (`.picker-row*` and `.patient-picker-row*`) replaced by one block under the `.patient-picker-row*` names, carrying F-6's definition-list styling **and** F-7's selectable/hover/focus and badge styling. No dead CSS left behind. |
+| `frontend/src/shared/components/PatientPickerRow.tsx` | **Add/add.** One component now — see below. |
+| `doc/implementation-progress.md` | See below. |
+
+#### The picker row: one component, both features' behaviour
+
+The two versions were not two drafts of the same thing. F-6's was a presentational `<dl>` of four
+labelled facts including an explicit date of birth, never selectable. F-7's took a `PatientSummary`
+object, rendered as a `<button>` with an accessible label, carried Inactive/Merged/Similar-name/
+Profile-incomplete badges, and fell back to the registration date because no `Visit` exists before
+F-10. Keeping either one alone would have lost something real, so the surviving component takes the
+**union**, and the props are **flat rather than a patient object**:
+
+- `shared/` no longer imports a `features/` type, which F-7's version did (`PatientSummary`). That
+  was a layering inversion that would only have got worse as F-9 added a third caller.
+- The two features' DTOs genuinely differ — `DuplicateCandidate` has a date of birth and no
+  registration date; `PatientSummary` has a registration date and no date of birth. Flat props let
+  each caller supply what it actually has instead of one being forced into the other's shape.
+- `undefined` and `null` are kept distinct for `dateOfBirth`: `null` renders "Not recorded" (this
+  patient has none), `undefined` omits the fact (this caller's DTO has no such field). A row does
+  not assert an absence nobody reported.
+- `onSelect` present ⇒ the row is a button with an `aria-label` carrying the disambiguators;
+  absent ⇒ an inert `<div>`. That is exactly what F-6's dialog wants — merge tooling is Phase 2, and
+  its test *asserts* the rows are not selectable, which still passes.
+- Callers: F-7's `PatientResults`/`RecentPatients` spread `{...patient}` (the DTO's field names are
+  the props); F-6's `DuplicateWarningDialog` passes fields explicitly and now also passes `gender`
+  and `isMerged`, so a candidate already marked as a duplicate carries a visible badge as well as
+  the dialog's sentence.
+- `data-testid="patient-picker-row"` is on both variants, so F-7's five Vitest suites and its
+  Playwright spec keep their selector.
+
+**One test assertion was reworded, and it is named here rather than buried.** F-6's
+`DuplicateWarningDialog.test.tsx` asserted the exact string `'No phone'`; the merged component uses
+F-7's more explicit `'No phone recorded'`. The assertion now looks for that string. The property
+under test — the cell states the absence instead of being blank — is unchanged, and no assertion was
+loosened, deleted or skipped. F-7's `PatientPickerRow.test.tsx` was converted from object props to
+flat props (mechanical) and **gained two tests** covering each caller's shape on the one component.
+
+#### The similarity function: one algorithm, two thresholds
+
+F-6 shipped `NameSimilarity` (grapheme-cluster Levenshtein ratio, word-order-insensitive,
+`DefaultThreshold = 0.85`). F-7 shipped `PatientNameSimilarity` (char Levenshtein ratio, plus a
+query-word × name-word cross product, `SearchFallbackThreshold = 0.7`). Same family, two
+implementations, and drift between them would have meant the duplicate check and the search
+disagreeing about who is the same person.
+
+`PatientNameSimilarity.cs` is **deleted**. `NameSimilarity` is the single type and now exposes:
+
+- `Ratio(left, right)` — unchanged, still F-6's whole-name comparison at `DefaultThreshold` (0.85).
+- `Score(query, name)` — F-7's query-shaped scoring, rebuilt **on top of `Ratio`** rather than on a
+  second Levenshtein. It exists because F-7's inputs are asymmetric: one side is a fragment the
+  physician typed, and `"kumr"` has to be able to reach `"ravi kumar"`, which whole-string `Ratio`
+  scores at 0.4. Folding it onto `Ratio` also gave F-7's path the grapheme-cluster handling it did
+  not have, so a Devanagari name is no longer held to a quietly stricter standard (E-57).
+- `SearchFallbackThreshold` — 0.7, unchanged.
+
+**The two thresholds were deliberately not collapsed**, and there is now a test saying so with the
+reason attached. F-6 interrupts a registration, where a false positive costs someone's attention, so
+it is strict. F-7 offers an extra row on a screen that already found nothing, where a false negative
+costs a duplicate patient record and a split history (E-30). The plan says "the same similarity
+*function*", not the same threshold.
+
+Three tests were added to `PatientMatchingPrimitivesTests` to keep the consolidation from silently
+coming apart: the ordering of the two thresholds, that `Score` is never below `Ratio` for the same
+pair (which fails if anyone reimplements `Score` independently), and that `Score` reaches a full name
+from one typed word where `Ratio` cannot.
+
+#### The tracker itself
+
+Both branches had appended to this file and both appends were kept — but reading the two sides
+turned up two losses that a mechanical resolution would have carried forward silently:
+
+1. **F-5's builder log entry was gone from `main`.** F-5's verification entry says the builder's
+   entry "lands on merge"; it did not. `main`'s copy of this file does not contain it, so git
+   presented it as a deletion and would have kept it deleted. It is **restored verbatim from
+   `e1bf206`**, in pipeline order, immediately before F-5's verification entry, with a note saying
+   where it came from.
+2. **F-6 has no log entry at all and its status row still read `Not Started`** while its code sits on
+   `main`. A separate entry above records that gap; the row now reads `Awaiting verification`, which
+   is both accurate and a status this role may set. No F-6 build report was invented.
+
+#### Build and tests — run in this worktree after the merge, from a clean build, real output
+
+`bin/` and `obj/` deleted across the solution before building; `wwwroot` deleted before the frontend
+build.
+
+| Command | Result |
+|---|---|
+| `dotnet build PMS/backend/PMS.sln` | **Build succeeded, 0 Warning(s), 0 Error(s)** |
+| `dotnet test PMS/backend/PMS.sln` | `PMS.Application.Tests` **Failed: 0, Passed: 291, Skipped: 0**; `PMS.Api.IntegrationTests` **Failed: 0, Passed: 180, Skipped: 0** |
+| `npm test` (`vitest run`) in `PMS/frontend` | **24 files, 274 passed, 0 failed, 0 skipped** |
+| `npm run build` (`tsc -b && vite build`) | Succeeded — 120 modules, emitted into `PMS/backend/src/PMS.Api/wwwroot` |
+| `tsc --noEmit -p tsconfig.json` on `PMS.E2E` | **exit 0**, no diagnostics |
+
+**Total: 745 automated tests passing (471 .NET + 274 Vitest), 0 failed, 0 skipped.** Counts read
+rather than exit codes, per the host gotcha that `dotnet test` prints `Passed!` on a zero-test
+project. Run from inside the real worktree path, not a Temp copy, for the same reason.
+
+Nothing broke as a consequence of the merge beyond the two conflicts' own call sites: F-6's dialog
+tests and F-7's search tests both pass against the single component and the single similarity
+function, which is the actual evidence that the collapse preserved both features' behaviour.
+
+**Not re-run:** the Playwright browser suite. `browserType.launch: spawn EPERM` on this host is
+unchanged from F-1 through F-7; the specs typecheck and are not claimed as passing. **The F-1
+deadline stands — the harness must work before F-14.**
+
+#### Carried and flagged — not decided here
+
+- **F-6 needs an independent verification pass and has no builder report to check against.** It is
+  on `main` regardless.
+- **Merge order.** This branch now contains F-4, F-5, F-6 and F-7. F-4, F-5 and F-6 are already on
+  `main`, so merging this branch no longer drags in unmerged features — the constraint recorded in
+  F-5's and F-7's own entries is discharged by this merge.
+- **F-5's AC-2 bare-age discrepancy** is still open and still needs an owner or `planning-pms`
+  ruling. Untouched here.
+- **F-2's committed seed credential** and the **React Router v6 advisories** are unchanged and
+  restated so they are not lost.
+- **The plan should record that F-6 and F-7 share `PatientPickerRow` and `NameSimilarity`**, and
+  that the two thresholds are two numbers on purpose. Right now that only lives in the code and in
+  this entry.
+
+Committed on `feature/f-7-patient-search` and pushed to `origin`. **Not merged into `main`; `main`
+was not modified; nothing was force-pushed and no branch or worktree was deleted.**
+Next: `verification-pms` — and it can now verify against `main` as the baseline rather than the F-5
+branch, since F-4, F-5 and F-6 are all on `main` and in this branch.

@@ -38,6 +38,15 @@ public static class DependencyInjection
         // arrives after the physician has stopped thinking about who this patient is.
         services.AddScoped<IPatientDuplicateService, PatientDuplicateService>();
 
+        // F-7. Scoped: reaches the database through the same IPatientRepository. Kept separate from
+        // IPatientService because finding a patient and registering one are different jobs with
+        // different collaborators - F-9's appointment picker will want this one and not the other.
+        // Separate from IPatientDuplicateService too, for the same reason in the other direction:
+        // both compare names, and they share NameSimilarity for that, but "is this the same person
+        // I am registering" and "which patients match what I typed" are different questions asked
+        // at different moments and answered at different thresholds.
+        services.AddScoped<IPatientSearchService, PatientSearchService>();
+
         return services;
     }
 }

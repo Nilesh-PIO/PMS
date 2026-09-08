@@ -5,13 +5,16 @@ using PMS.Application.Dtos.Patients;
 namespace PMS.Api.Controllers;
 
 /// <summary>
-/// F-5's two endpoints (planning-pms-verification.md, F-5 point 3). Depends on
-/// <see cref="IPatientService"/> and never on PmsDbContext (section 2, API shape).
+/// The patient endpoints — F-5's registration and profile, F-6's duplicate check and
+/// merged-into pointer, F-7's search and recent list (planning-pms-verification.md, F-5 point 3,
+/// F-6 point 3 and F-7 point 3). Depends on <see cref="IPatientService"/>,
+/// <see cref="IPatientSearchService"/> and <see cref="IPatientDuplicateService"/>, never on
+/// PmsDbContext (section 2, API shape).
 /// </summary>
 /// <remarks>
-/// No <c>[AllowAnonymous]</c> anywhere. F-2's fallback policy is default-deny, so both routes
-/// require the session cookie by omission rather than by opt-in - which is the point of that
-/// design: the first controller that serves real patient data is protected because nobody had to
+/// No <c>[AllowAnonymous]</c> anywhere. F-2's fallback policy is default-deny, so every route here
+/// requires the session cookie by omission rather than by opt-in - which is the point of that
+/// design: the controller that serves real patient data is protected because nobody had to
 /// remember to protect it.
 /// </remarks>
 [ApiController]
@@ -20,11 +23,16 @@ namespace PMS.Api.Controllers;
 public class PatientsController : ControllerBase
 {
     private readonly IPatientService _patients;
+    private readonly IPatientSearchService _search;
     private readonly IPatientDuplicateService _duplicates;
 
-    public PatientsController(IPatientService patients, IPatientDuplicateService duplicates)
+    public PatientsController(
+        IPatientService patients,
+        IPatientSearchService search,
+        IPatientDuplicateService duplicates)
     {
         _patients = patients;
+        _search = search;
         _duplicates = duplicates;
     }
 
@@ -69,6 +77,62 @@ public class PatientsController : ControllerBase
         // client's next navigation is exactly that URL.
         return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
     }
+
+    /// <summary>
+    /// Finds patients by name or phone (BRD L93). 200 with the best matches, 400 on a short query.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Declared before <c>{id:guid}</c> for readability only — the <c>:guid</c> constraint means
+    /// the literal segment "search" could never be read as a patient id regardless of order.
+    /// </para>
+    /// <para>
+    /// <b>Always an array, never a single patient.</b> Even one match comes back as a one-element
+    /// list, because the alternative shape would invite a client to skip the picker and open the
+    /// record — which is exactly the auto-selection RSK-12 warns about. An empty array is a valid
+    /// 200: "no patient found" is an answer, and the client turns it into E-7's inline register
+    /// action.
+    /// </para>
+    /// <para>
+    /// <b>A short query is a 400, not an empty list.</b> One character matches most of the table,
+    /// and answering it with the whole table is the name-only wall of rows this feature exists to
+    /// avoid. The client does not send it either — but the API is the thing that has to be right.
+    /// </para>
+    /// </remarks>
+    /// <param name="query">The text as typed. Matched against name and phone digits.</param>
+    /// <param name="includeInactive">Include retired and merged records, each flagged as such.</param>
+    /// <param name="take">Row limit. Clamped to 50; defaults to 20.</param>
+    /// <param name="cancellationToken">
+    /// Cancelled when the browser abandons the request — which a search box does on every keystroke
+    /// after the debounce, so the superseded query stops costing the database anything.
+    /// </param>
+    [HttpGet("search")]
+    [ProducesResponseType(typeof(IReadOnlyList<PatientSummaryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<IReadOnlyList<PatientSummaryResponse>>> Search(
+        [FromQuery] string? query,
+        [FromQuery] bool includeInactive,
+        [FromQuery] int? take,
+        CancellationToken cancellationToken) =>
+        Ok(await _search.SearchAsync(query, includeInactive, take, cancellationToken));
+
+    /// <summary>
+    /// The patients most recently dealt with (BRD L159). 200, possibly with an empty array.
+    /// </summary>
+    /// <remarks>
+    /// An empty array on a fresh install is the correct answer and not an error (E-2) — the client
+    /// renders an empty state offering "register the first patient" rather than a blank panel.
+    /// See <c>PatientRepository.GetRecentAsync</c> for what "recent" currently means and the
+    /// assumption behind it.
+    /// </remarks>
+    /// <param name="take">Row limit. Clamped to 50; defaults to 10.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("recent")]
+    [ProducesResponseType(typeof(IReadOnlyList<PatientSummaryResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<PatientSummaryResponse>>> Recent(
+        [FromQuery] int? take,
+        CancellationToken cancellationToken) =>
+        Ok(await _search.GetRecentAsync(take, cancellationToken));
 
     /// <summary>The full profile. 200, or 404 if no patient has this id.</summary>
     [HttpGet("{id:guid}")]

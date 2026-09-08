@@ -207,4 +207,55 @@ public class PatientMatchingPrimitivesTests
         // in a constant nobody is watching.
         NameSimilarity.DefaultThreshold.Should().Be(0.85d);
     }
+
+    // --- one function, two thresholds (F-6 + F-7 merge) ---------------------
+
+    [Fact]
+    public void The_two_features_share_one_algorithm_and_keep_two_thresholds()
+    {
+        // F-6 and F-7 were built in parallel and each shipped its own copy of this algorithm. They
+        // are one type now, and that is not cosmetic: two implementations left to drift would mean
+        // the duplicate check and the search disagreeing about who is the same person.
+        //
+        // The *thresholds* stay two numbers on purpose (plan F-7 point 1 says "the same similarity
+        // function", not the same threshold). F-6 interrupts a registration, so it is strict; F-7
+        // offers an extra row on an already-empty screen after finding nothing, where a false
+        // negative costs a duplicate record and a split history (E-30). Asserting the ordering here
+        // means "just make them the same number" fails a test with a reason attached.
+        NameSimilarity.SearchFallbackThreshold.Should().Be(0.7d);
+        NameSimilarity.SearchFallbackThreshold
+            .Should().BeLessThan(NameSimilarity.DefaultThreshold);
+    }
+
+    [Fact]
+    public void The_search_score_is_built_on_the_duplicate_checks_ratio()
+    {
+        // Score is Ratio plus a word-level pass, so it can never report two whole names as *less*
+        // alike than Ratio does. If someone reimplemented Score independently, this is the
+        // assertion that notices.
+        foreach (var (query, name) in new[]
+                 {
+                     ("ravi kumar", "ravi kumaar"),
+                     ("ravi kumar", "kumar ravi"),
+                     ("sunita devi", "suneeta devi"),
+                     ("ravi kumar", "priya menon"),
+                 })
+        {
+            NameSimilarity.Score(query, name)
+                .Should().BeGreaterThanOrEqualTo(NameSimilarity.Ratio(query, name));
+        }
+    }
+
+    [Fact]
+    public void The_search_score_reaches_a_full_name_from_one_typed_word()
+    {
+        // The reason Score exists at all rather than F-7 calling Ratio: one side is a fragment the
+        // physician typed. Whole-string Ratio between "kumr" and "ravi kumar" is far below either
+        // threshold, and E-30's duplicate gets created.
+        NameSimilarity.Ratio("kumr", "ravi kumar")
+            .Should().BeLessThan(NameSimilarity.SearchFallbackThreshold);
+
+        NameSimilarity.Score("kumr", "ravi kumar")
+            .Should().BeGreaterThanOrEqualTo(NameSimilarity.SearchFallbackThreshold);
+    }
 }

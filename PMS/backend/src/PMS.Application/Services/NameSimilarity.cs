@@ -4,8 +4,19 @@ namespace PMS.Application.Services;
 
 /// <summary>
 /// How alike two normalized patient names are, on a 0-to-1 scale
-/// (planning-pms-verification.md, F-6 point 1; brainstorm REC-2, RSK-2, E-25, E-30).
+/// (planning-pms-verification.md, F-6 point 1 and F-7 point 1; brainstorm REC-2, RSK-2, E-25,
+/// E-30).
 /// </summary>
+/// <remarks>
+/// <b>One function, two thresholds — and that is on purpose.</b> Plan F-7 point 1 says the search
+/// fallback "uses the same similarity function as F-6", and this is the only place either feature
+/// measures name distance: <see cref="Ratio"/> for F-6's duplicate check at
+/// <see cref="DefaultThreshold"/>, <see cref="Score"/> for F-7's search fallback at
+/// <see cref="SearchFallbackThreshold"/>. Two implementations that drifted apart would mean the
+/// duplicate check and the search disagreed about who is the same person. The thresholds stay
+/// separate because they answer different questions at different costs; the algorithm underneath
+/// them does not.
+/// </remarks>
 /// <remarks>
 /// <para>
 /// <b>Why a similarity score and not string equality.</b> Exact matching catches the duplicate
@@ -102,6 +113,103 @@ public static class NameSimilarity
     /// <summary>True when two normalized names are similar enough to warrant a duplicate warning.</summary>
     public static bool IsSimilar(string? left, string? right, double threshold = DefaultThreshold) =>
         Ratio(left, right) >= threshold;
+
+    // --- F-7's fuzzy search fallback ----------------------------------------
+    //
+    // MERGE NOTE (F-6 + F-7). F-7 was built in parallel on its own branch and shipped its own copy
+    // of this algorithm as `PatientNameSimilarity`, with a coordination comment saying the branch
+    // that merged second should collapse the two into one. This is that collapse. There is now one
+    // Levenshtein implementation, one grapheme-cluster split and one Ratio; F-7's contribution is
+    // the query-shaped scoring below, which sits on top of the same primitive rather than beside a
+    // second copy of it. The two *thresholds* deliberately remain two constants - see
+    // SearchFallbackThreshold.
+
+    /// <summary>
+    /// The score at or above which F-7's search fallback offers a row as a possible match
+    /// (plan F-7 point 1, C-22).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ASSUMPTION (plan F-7 point 1, C-22 — brainstorm §12 carries no <c>Q-</c> for it).</b> The
+    /// plan pins <b>0.85</b> as F-6's duplicate-detection threshold and says F-7 reuses "the same
+    /// similarity <em>function</em>" — it does not say the same threshold, and the two are not the
+    /// same decision:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item><description>F-6 decides <b>"interrupt this registration to warn that the person may
+    ///   already exist"</b>. A false positive there interrupts someone mid-task, so a strict
+    ///   threshold is right.</description></item>
+    ///   <item><description>F-7 decides <b>"offer this row after the exact search found nothing at
+    ///   all"</b>. A false positive costs one extra line on an otherwise empty screen; a false
+    ///   negative costs a duplicate patient record and a split clinical history (E-30). The costs
+    ///   are asymmetric, and only in one direction.</description></item>
+    /// </list>
+    /// <para>
+    /// So the fallback runs at <b>0.7</b>: loose enough to find <c>"ravi kumr"</c> from
+    /// <c>"ravi kumar"</c> and <c>"suneeta"</c> from <c>"sunita"</c>, tight enough that
+    /// <c>"ravi"</c> does not surface <c>"kavita sharma"</c>. Both constants are pinned by tests, so
+    /// changing either is a deliberate act with a failing test rather than a quiet drift. If the
+    /// plan owner rules that one number must govern both features, these two constants are the only
+    /// things that change.
+    /// </para>
+    /// </remarks>
+    public const double SearchFallbackThreshold = 0.7;
+
+    /// <summary>
+    /// Scores an already-normalized <em>search query</em> against an already-normalized stored name,
+    /// 0 (nothing in common) to 1 (identical).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why this is not just <see cref="Ratio"/>.</b> <c>Ratio</c> compares two whole names, which
+    /// is the right question for F-6: both sides are complete names of complete people. F-7 asks a
+    /// different question — one side is a <em>fragment the physician typed</em>. A clinic full of
+    /// shared surnames means <c>"kumr"</c> has to be able to reach <c>"ravi kumar"</c>, and the
+    /// whole-string ratio between those two is only 0.4.
+    /// </para>
+    /// <para>
+    /// <b>Whole-string and per-word, whichever is kinder.</b> The score is the best of the
+    /// whole-string ratio, the query against each word of the stored name, each query word against
+    /// the whole name, and each query word against each name word. Taking the maximum can only
+    /// <em>widen</em> the fallback, and widening is the safe direction when the alternative is a
+    /// duplicate record (E-30). It runs only after the exact search has already returned nothing.
+    /// </para>
+    /// </remarks>
+    public static double Score(string? normalizedQuery, string? normalizedName)
+    {
+        if (string.IsNullOrEmpty(normalizedQuery) || string.IsNullOrEmpty(normalizedName))
+        {
+            return 0d;
+        }
+
+        var best = Ratio(normalizedQuery, normalizedName);
+
+        // Short-circuit before the word loops: nothing below can beat an exact match.
+        if (best >= 1d)
+        {
+            return 1d;
+        }
+
+        var queryWords = normalizedQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var nameWords = normalizedName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var nameWord in nameWords)
+        {
+            best = Math.Max(best, Ratio(normalizedQuery, nameWord));
+        }
+
+        foreach (var queryWord in queryWords)
+        {
+            best = Math.Max(best, Ratio(queryWord, normalizedName));
+
+            foreach (var nameWord in nameWords)
+            {
+                best = Math.Max(best, Ratio(queryWord, nameWord));
+            }
+        }
+
+        return best;
+    }
 
     /// <summary>The name's words in a stable order, so word order is not mistaken for misspelling.</summary>
     private static string SortWords(string value)
